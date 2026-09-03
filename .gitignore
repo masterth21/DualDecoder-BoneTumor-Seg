@@ -1,0 +1,117 @@
+# IDE
+
+.idea/
+
+
+
+# Python cache
+
+__pycache__/
+
+*.pyc
+
+
+
+# Jupyter
+
+.ipynb_checkpoints/
+
+
+
+# Models
+
+*.h5
+
+*.hdf5
+
+*.pth
+
+*.pt
+
+*.ckpt
+
+
+
+# TensorBoard & logs
+
+logs/
+
+tb_logs/
+
+checkpoint/tb_logs/
+
+checkpoint_old/tb_logs/
+
+events.out.tfevents.*
+
+
+
+# CSV logs
+
+checkpoint/*.csv
+
+checkpoint_old/*.csv
+
+
+
+# Checkpoints
+
+checkpoint/
+
+checkpoint_old/
+
+
+
+# Dataset
+
+data/
+
+datasets/
+
+dataset/
+
+
+
+# Medical images
+
+*.nii
+
+
+
+# Images
+
+*.png
+
+*.jpg
+
+*.jpeg
+
+
+
+# Prediction outputs
+
+prediction_results/
+
+prediction_results_2/
+
+outputs/
+
+
+
+# Other folders
+
+old_data_preperation/
+
+others/
+
+
+
+# Ignore notebooks
+
+data_preparation/verify_preprocess_data.ipynb
+
+
+
+# Keep gitkeep
+
+!.gitkeep

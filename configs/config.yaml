@@ -1,0 +1,172 @@
+############################################################################
+# CẤU HÌNH TỐI ƯU CHO U-NET++ VỚI BACKBONE RESNET34
+# Mục tiêu: Dice Score ~0.78-0.80 cho phân đoạn u xương
+# Được kiểm tra: Tháng 5 năm 2026
+############################################################################
+
+WORK_DIR: ${hydra:runtime.cwd}
+
+DATA_PREPARATION:
+  SCANS_TRAIN_DATA_PATH: "/data/Training Batch 2/"
+  SCANS_VAL_DATA_PATH: "/data/Training Batch 1/"
+  RESIZED_HEIGHT: ${INPUT.HEIGHT}
+  RESIZED_WIDTH: ${INPUT.WIDTH}
+  SCAN_MIN_VALUE: -200
+  SCAN_MAX_VALUE: 250
+
+DATASET:
+  TRAIN:
+    IMAGES_PATH: "../../data/BTXRD/split/train/images"
+    MASK_PATH: "../../data/BTXRD/split/train/mask"
+  VAL:
+    IMAGES_PATH: "../../data/BTXRD/split/val/images"
+    MASK_PATH: "../../data/BTXRD/split/val/mask"
+
+# ============ CẤU HÌNH MÔ HÌNH ============
+MODEL:
+  # Các tùy chọn TYPE: "dual_decoder_resnet", "unet_plus_plus", "hybrid_transunet", "unet3plus"
+  TYPE: "dual_decoder_resnet"
+  WEIGHTS_FILE_NAME: "model_dual_decoder_resnet_optimal"
+  BACKBONE:
+    # ResNet34 / ResNet50V2: Trích xuất đặc trưng đa tầng cho 2 nhánh Region & Boundary
+    TYPE: "resnet34"
+
+# ============ TẢI DỮ LIỆU ============
+DATA_GENERATOR_TYPE: "TF_GENERATOR"  # TF_GENERATOR ổn định, DALI cho tốc độ
+SEED: 42  # Tái tạo lại kết quả
+VERBOSE: 1
+DATALOADER_WORKERS: 4  # Tăng để hiệu suất tốt hơn
+
+# ============ THÔNG SỐ ĐẦU VÀO/ĐẦU RA ============
+INPUT:
+  HEIGHT: 384  # Tăng từ 320 để bắt chi tiết tốt hơn
+  WIDTH: 384
+  CHANNELS: 3
+
+OUTPUT:
+  CLASSES: 3   # 0: Không u (Nền), 1: U lành, 2: U ác
+
+
+# ============ SIÊU THÔNG SỐ - ĐƯỢC ĐIỀU CHỈNH TỐI ƯU ============
+HYPER_PARAMETERS:
+  EPOCHS: 200  # Tăng để mô hình hội tụ
+  BATCH_SIZE: 4  # Tăng từ 2 để ước lượng gradient tốt hơn
+  LEARNING_RATE: 2e-5  # LR thấp hơn để ổn định, scheduler sẽ điều chỉnh
+  
+  # Tối ưu hóa nâng cao
+  GRADIENT_CLIP: 1.0  # Cắt gradient để tránh bùng nổ
+  WEIGHT_DECAY: 1e-5  # Chính quy hóa L2
+
+# ============ CALLBACK VÀ GIÁM SÁT ============
+CALLBACKS:
+  TENSORBOARD:
+    PATH: "checkpoint/tb_logs"
+
+  EARLY_STOPPING:
+    PATIENCE: 25  # Tăng để cho huấn luyện đầy đủ
+    MIN_DELTA: 1e-4  # Ngưỡng cải tiến tối thiểu
+
+  MODEL_CHECKPOINT:
+    PATH: "checkpoint"
+    SAVE_WEIGHTS_ONLY: True
+    SAVE_BEST_ONLY: True
+
+  CSV_LOGGER:
+    PATH: "checkpoint"
+    APPEND_LOGS: False
+
+  # Giảm Learning Rate khi loss không cải thiện (MỚI)
+  REDUCE_LR_ON_PLATEAU:
+    MONITOR: "val_dice_coef"
+    FACTOR: 0.5  # Giảm LR xuống 1/2
+    PATIENCE: 10  # Sau 10 epoch không cải thiện
+    MIN_LR: 1e-7
+    VERBOSE: 1
+
+# ============ XỬ LÝ & TĂNG CƯỜNG DỮ LIỆU ============
+PREPROCESS_DATA:
+  RESIZE:
+    VALUE: True  # QUAN TRỌNG: Luôn resize về kích thước mô hình
+    HEIGHT: ${INPUT.HEIGHT}
+    WIDTH: ${INPUT.WIDTH}
+
+  IMAGE_PREPROCESSING_TYPE: "normalize"  # Chuẩn hóa về [0, 1]
+
+  NORMALIZE_MASK:
+    VALUE: True
+    NORMALIZE_VALUE: 255
+
+  SHUFFLE:
+    TRAIN:
+      VALUE: True
+    VAL:
+      VALUE: False
+
+  # ========== TĂNG CƯỜNG DỮ LIỆU NÂNG CAO (Dành riêng cho Y tế) ==========
+  AUGMENTATION:
+    # Các phép biến đổi hình học
+    ROTATION:
+      VALUE: True
+      ANGLE_RANGE: [-20, 20]  # độ
+    
+    FLIP:
+      VALUE: True
+      HORIZONTAL: True
+      VERTICAL: True
+    
+    # Các phép biến đổi nâng cao cho ảnh y tế
+    ELASTIC_DEFORMATION:
+      VALUE: True
+      ALPHA: 30  # Cường độ biến dạng
+      SIGMA: 3   # Độ mịn
+
+    ZOOM:
+      VALUE: True
+      RANGE: [0.8, 1.2]  # 80% đến 120% zoom
+
+    # Tăng cường cường độ
+    BRIGHTNESS:
+      VALUE: True
+      RANGE: [-0.2, 0.2]  # Điều chỉnh độ sáng
+
+    CONTRAST:
+      VALUE: True
+      RANGE: [0.8, 1.2]  # Điều chỉnh độ tương phản
+
+    CLAHE:  # Cân bằng Histogram Thích ứng Giới hạn Tương phản
+      VALUE: True
+      CLIP_LIMIT: 2.0
+      TILE_GRID_SIZE: 8
+
+    GAUSSIAN_NOISE:
+      VALUE: True
+      STDDEV: 0.01  # Tiếng ồn nhỏ để tránh overfitting
+
+    GAUSSIAN_BLUR:
+      VALUE: True
+      SIGMA_RANGE: [0.5, 1.5]
+
+# ============ GPU & TỐI ƯU HÓA ============
+USE_MULTI_GPUS:
+  VALUE: False  # Đặt thành True nếu có nhiều GPU
+  GPU_IDS: -1
+
+OPTIMIZATION:
+  AMP: True   # Độ chính xác hỗn hợp tự động - nhanh hơn 2-3 lần
+  XLA: True   # Đại số tuyến tính gia tốc - tối ưu hóa thêm
+
+# ============ HÀM MẤT ============
+LOSS_CONFIG:
+  TYPE: "weighted_dice_loss"  # Xử lý mất cân bằng lớp
+  # WEIGHTS: [0.1, 0.4, 0.5]    # [Nền, U lành, U ác]
+  WEIGHTS: [0.1, 0.9]    # [Nền, U]
+
+
+# ============ CẤU HÌNH HYDRA ============
+defaults:
+  - _self_
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+hydra:
+  output_subdir: null
