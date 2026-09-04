@@ -141,6 +141,34 @@ def residual_refinement_block(x, filters, name_prefix="refine"):
     return x
 
 
+def apply_skip_attention(skip, gate, stage_idx, attn_type, prefix="reg"):
+    """
+    Ap dung co che Attention tai Skip Connection:
+    - 'nalaformer' / 'nala': NaLaFormer Linear Attention (2026)
+    - 'log_linear' / 'log': Log-Linear Attention (ICLR 2026)
+    - 'multipole' / 'mutil': Multipole Attention (ICCV 2025)
+    - 'oktay' / 'gate': Additive Gated Attention (Oktay et al., 2018)
+    """
+    attn_type = str(attn_type).lower()
+    if attn_type in ["nalaformer", "nala"]:
+        from .nalaformer_attention import build_nalaformer_bottleneck
+        return build_nalaformer_bottleneck(
+            d_model=128, depth=1, num_heads=4, name=f"{prefix}_skip_nala{stage_idx}"
+        )(skip)
+    elif attn_type in ["log_linear", "log", "loglinear"]:
+        from .log_linear_attention import build_loglinear_bottleneck
+        return build_loglinear_bottleneck(
+            d_model=128, depth=1, num_heads=4, name=f"{prefix}_skip_log{stage_idx}"
+        )(skip)
+    elif attn_type in ["multipole", "mutil", "mano"]:
+        from .multipole_attention import build_multipole_bottleneck
+        return build_multipole_bottleneck(
+            d_model=128, depth=1, num_heads=4, name=f"{prefix}_skip_multi{stage_idx}"
+        )(skip)
+    else:
+        return SkipAttentionGate(name=f"{prefix}_skip_att{stage_idx}")([skip, gate])
+
+
 # =============================================================================
 # MAIN MODEL BUILDER
 # =============================================================================
@@ -182,38 +210,67 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     bottleneck = e5
 
     # =========================================================================
-    # HOOK POINT: ATTENTION MODULE AT BOTTLENECK (LOG-LINEAR / NALAFORMER / MULTIPOLE)
+    # HOOK POINT 1: ATTENTION MODULE AT BOTTLENECK (OPTIONAL)
     # =========================================================================
-    # Chèn attention của bạn tại đây nếu muốn:
-    # from .log_linear_attention import LogLinearBottleneck
-    # bottleneck = LogLinearBottleneck(d_model=256, depth=2, num_heads=8)(bottleneck)
-    # =========================================================================
+    bottleneck_attn = str(getattr(cfg.MODEL, "BOTTLENECK_ATTENTION", "none")).lower()
+    if bottleneck_attn in ["log_linear", "log", "loglinear"]:
+        from .log_linear_attention import build_loglinear_bottleneck
+        print("[INFO] Applying Log-Linear Bottleneck Attention (ICLR 2026)")
+        bottleneck = build_loglinear_bottleneck(d_model=256, depth=2, num_heads=8, name="loglinear_bottleneck")(bottleneck)
+    elif bottleneck_attn in ["multipole", "mutil", "mano"]:
+        from .multipole_attention import build_multipole_bottleneck
+        print("[INFO] Applying Multipole Bottleneck Attention (ICCV 2025 Workshop)")
+        bottleneck = build_multipole_bottleneck(d_model=256, depth=2, num_heads=8, name="multipole_bottleneck")(bottleneck)
+    elif bottleneck_attn in ["nalaformer", "nala"]:
+        from .nalaformer_attention import build_nalaformer_bottleneck
+        print("[INFO] Applying NaLaFormer Bottleneck Attention (2026)")
+        bottleneck = build_nalaformer_bottleneck(d_model=256, depth=2, num_heads=8, name="nalaformer_bottleneck")(bottleneck)
+    else:
+        print("[INFO] Bottleneck Attention: None")
 
     # =========================================================================
-    # 2. REGION DECODER BRANCH (Phần Phân Đoạn Vùng Sơ Bộ)
-    #    Mỗi skip connection được lọc qua SkipAttentionGate trước khi Concatenate.
+    # HOOK POINT 2: ATTENTION MODULE AT SKIP CONNECTIONS (STAGES 3 & 4)
+    # =========================================================================
+    skip_stages = list(getattr(cfg.MODEL, "SKIP_ATTENTION_STAGES", [3, 4]))
+    skip_attn_type = str(getattr(cfg.MODEL, "SKIP_ATTENTION_TYPE", "nalaformer")).lower()
+    print(f"[INFO] Skip Attention Module: '{skip_attn_type}' active at stage(s): {skip_stages}")
+
+    # =========================================================================
+    # 2. REGION DECODER BRANCH
     # =========================================================================
     # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
     r4_up = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding='same', name="reg_up4")(bottleneck)
-    e4_att = SkipAttentionGate(name="reg_skip_att4")([e4, r4_up])
+    if 4 in skip_stages:
+        e4_att = apply_skip_attention(e4, r4_up, 4, skip_attn_type, prefix="reg")
+    else:
+        e4_att = e4
     r4 = layers.Concatenate(name="reg_concat4")([r4_up, e4_att])
     r4 = conv_block(r4, 512, name_prefix="reg_block4")
 
     # --- Tầng 3: 24x24 -> 48x48, skip = e3 ---
     r3_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="reg_up3")(r4)
-    e3_att = SkipAttentionGate(name="reg_skip_att3")([e3, r3_up])
+    if 3 in skip_stages:
+        e3_att = apply_skip_attention(e3, r3_up, 3, skip_attn_type, prefix="reg")
+    else:
+        e3_att = e3
     r3 = layers.Concatenate(name="reg_concat3")([r3_up, e3_att])
     r3 = conv_block(r3, 256, name_prefix="reg_block3")
 
     # --- Tầng 2: 48x48 -> 96x96, skip = e2 ---
     r2_up = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same', name="reg_up2")(r3)
-    e2_att = SkipAttentionGate(name="reg_skip_att2")([e2, r2_up])
+    if 2 in skip_stages:
+        e2_att = apply_skip_attention(e2, r2_up, 2, skip_attn_type, prefix="reg")
+    else:
+        e2_att = e2
     r2 = layers.Concatenate(name="reg_concat2")([r2_up, e2_att])
     r2 = conv_block(r2, 128, name_prefix="reg_block2")
 
     # --- Tầng 1: 96x96 -> 192x192, skip = e1 ---
     r1_up = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same', name="reg_up1")(r2)
-    e1_att = SkipAttentionGate(name="reg_skip_att1")([e1, r1_up])
+    if 1 in skip_stages:
+        e1_att = apply_skip_attention(e1, r1_up, 1, skip_attn_type, prefix="reg")
+    else:
+        e1_att = e1
     r1 = layers.Concatenate(name="reg_concat1")([r1_up, e1_att])
     f_region = conv_block(r1, 64, name_prefix="f_region_block")
 
@@ -225,30 +282,41 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     region_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, name="region_output")(f_region_full)
 
     # =========================================================================
-    # 3. BOUNDARY DECODER BRANCH (Phần Nhận Diện Ranh Giới Sắc Nét)
-    #    Cũng có SkipAttentionGate riêng cho mỗi skip connection.
+    # 3. BOUNDARY DECODER BRANCH
     # =========================================================================
     # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
     b4_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="bound_up4")(bottleneck)
-    e4_att_b = SkipAttentionGate(name="bound_skip_att4")([e4, b4_up])
+    if 4 in skip_stages:
+        e4_att_b = apply_skip_attention(e4, b4_up, 4, skip_attn_type, prefix="bound")
+    else:
+        e4_att_b = e4
     b4 = layers.Concatenate(name="bound_concat4")([b4_up, e4_att_b])
     b4 = conv_block(b4, 256, name_prefix="bound_block4")
 
     # --- Tầng 3: 24x24 -> 48x48, skip = e3 ---
     b3_up = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same', name="bound_up3")(b4)
-    e3_att_b = SkipAttentionGate(name="bound_skip_att3")([e3, b3_up])
+    if 3 in skip_stages:
+        e3_att_b = apply_skip_attention(e3, b3_up, 3, skip_attn_type, prefix="bound")
+    else:
+        e3_att_b = e3
     b3 = layers.Concatenate(name="bound_concat3")([b3_up, e3_att_b])
     b3 = conv_block(b3, 128, name_prefix="bound_block3")
 
     # --- Tầng 2: 48x48 -> 96x96, skip = e2 ---
     b2_up = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same', name="bound_up2")(b3)
-    e2_att_b = SkipAttentionGate(name="bound_skip_att2")([e2, b2_up])
+    if 2 in skip_stages:
+        e2_att_b = apply_skip_attention(e2, b2_up, 2, skip_attn_type, prefix="bound")
+    else:
+        e2_att_b = e2
     b2 = layers.Concatenate(name="bound_concat2")([b2_up, e2_att_b])
     b2 = conv_block(b2, 64, name_prefix="bound_block2")
 
     # --- Tầng 1: 96x96 -> 192x192, skip = e1 ---
     b1_up = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_up1")(b2)
-    e1_att_b = SkipAttentionGate(name="bound_skip_att1")([e1, b1_up])
+    if 1 in skip_stages:
+        e1_att_b = apply_skip_attention(e1, b1_up, 1, skip_attn_type, prefix="bound")
+    else:
+        e1_att_b = e1
     b1 = layers.Concatenate(name="bound_concat1")([b1_up, e1_att_b])
     f_boundary = conv_block(b1, 32, name_prefix="f_boundary_block")
 

@@ -30,6 +30,15 @@ MODEL:
   BACKBONE:
     # ResNet34 / ResNet50V2: Trích xuất đặc trưng đa tầng cho 2 nhánh Region & Boundary
     TYPE: "resnet34"
+  
+  # Cấu hình Attention:
+  # 1. Loại Attention tại Skip Connection (Cổng 3 và 4):
+  #    Lựa chọn: "nalaformer", "log_linear", "multipole", hoặc "oktay" (cổng lọc cũ)
+  SKIP_ATTENTION_TYPE: "nalaformer"
+  SKIP_ATTENTION_STAGES: [3, 4]
+
+  # 2. Loại Attention tại Bottleneck (12x12) (tùy chọn: "nalaformer", "multipole", "log_linear", "none")
+  BOTTLENECK_ATTENTION: "none"
 
 # ============ TẢI DỮ LIỆU ============
 DATA_GENERATOR_TYPE: "TF_GENERATOR"  # TF_GENERATOR ổn định, DALI cho tốc độ

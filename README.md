@@ -28,11 +28,11 @@ An end-to-end deep learning framework for precise bone tumor segmentation in rad
 flowchart TD
     In["📷 Input Radiograph<br/>(384x384x3)"] --> Enc["🧠 ResNet Encoder Backbone<br/>(ResNet34 / ResNet50V2)"]
 
-    subgraph Skips ["Skip Connection Attention Gates"]
-        S1["Attention Gate 1 (192x192)"]
-        S2["Attention Gate 2 (96x96)"]
-        S3["Attention Gate 3 (48x48)"]
-        S4["Attention Gate 4 (24x24)"]
+    subgraph Skips ["Skip Connections"]
+        S1["Direct Skip 1 (192x192)"]
+        S2["Direct Skip 2 (96x96)"]
+        S3["Attention 3 (48x48)<br/>(NaLa / Log / Multi)"]
+        S4["Attention 4 (24x24)<br/>(NaLa / Log / Multi)"]
     end
 
     Enc --> S1
@@ -40,9 +40,10 @@ flowchart TD
     Enc --> S3
     Enc --> S4
     Enc --> Bottleneck["Bottleneck (12x12)"]
+    Bottleneck --> BAttn["⚡ Bottleneck Attention<br/>(NaLaFormer / Log-Linear / Multipole)"]
 
-    Bottleneck --> RegDec["🟦 Region Decoder<br/>(Semantic Tumor Area)"]
-    Bottleneck --> BoundDec["🟩 Boundary Decoder<br/>(Edge & Fine Contours)"]
+    BAttn --> RegDec["🟦 Region Decoder<br/>(Semantic Tumor Area)"]
+    BAttn --> BoundDec["🟩 Boundary Decoder<br/>(Edge & Fine Contours)"]
 
     S1 -.-> RegDec
     S2 -.-> RegDec
