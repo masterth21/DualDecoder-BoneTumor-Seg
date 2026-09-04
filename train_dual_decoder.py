@@ -3,7 +3,15 @@ Training script for Dual-Decoder (Region + Boundary + Refinement) ResNet Archite
 Handles boundary ground truth generation, multi-output compilation, mixed precision, and callbacks.
 """
 
+
 from datetime import datetime, timedelta
+import sys
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 import hydra
 from omegaconf import DictConfig
 import tensorflow as tf
@@ -24,6 +32,9 @@ from models.model import prepare_model
 from losses.loss import DiceCoefficient
 from losses.dual_decoder_loss import get_dual_decoder_losses
 from callbacks.timing_callback import TimingCallback
+from callbacks.comprehensive_metrics_callback import ComprehensiveMetricsCallback
+from callbacks.progress_callback import CompactProgressCallback
+
 
 
 def create_training_folders(cfg: DictConfig):
@@ -35,13 +46,24 @@ def create_training_folders(cfg: DictConfig):
 @hydra.main(version_base=None, config_path="configs", config_name="config")
 def train_dual_decoder(cfg: DictConfig):
     """Main training function for Dual-Decoder ResNet model"""
-    suppress_warnings()
+    # Check and configure GPU devices
+    physical_gpus = tf.config.list_physical_devices('GPU')
+    if physical_gpus:
+        print(f"[INFO] Detected {len(physical_gpus)} GPU device(s):")
+        for gpu in physical_gpus:
+            try:
+                tf.config.experimental.set_memory_growth(gpu, True)
+                print(f"   -> {gpu.name} (Memory Growth: ON)")
+            except Exception:
+                pass
+    else:
+        print("[WARNING] No GPU detected! Running on CPU.")
 
     # Force model type to dual_decoder_resnet if not already set
     cfg.MODEL.TYPE = "dual_decoder_resnet"
 
     print("\n" + "=" * 80)
-    print("🎯 DUAL-DECODER (REGION + BOUNDARY + REFINEMENT) RESNET PIPELINE")
+    print("[START] DUAL-DECODER (REGION + BOUNDARY + REFINEMENT) RESNET PIPELINE")
     print("=" * 80)
     print(f"Model Type: {cfg.MODEL.TYPE}")
     print(f"Backbone: {getattr(cfg.MODEL.BACKBONE, 'TYPE', 'resnet34')}")
@@ -51,7 +73,7 @@ def train_dual_decoder(cfg: DictConfig):
     print(f"Epochs: {cfg.HYPER_PARAMETERS.EPOCHS}")
     print("=" * 80 + "\n")
 
-    print("✓ Verifying data paths...")
+    print("[INFO] Verifying data paths...")
     verify_data(cfg)
 
     if cfg.USE_MULTI_GPUS.VALUE:
@@ -61,12 +83,12 @@ def train_dual_decoder(cfg: DictConfig):
     create_training_folders(cfg)
 
     if cfg.OPTIMIZATION.AMP:
-        print("✓ Enabling Automatic Mixed Precision (AMP)")
+        print("[INFO] Enabling Automatic Mixed Precision (AMP)")
         policy = mixed_precision.Policy('mixed_float16')
         mixed_precision.set_global_policy(policy)
 
     if cfg.OPTIMIZATION.XLA:
-        print("✓ Enabling Accelerated Linear Algebra (XLA)")
+        print("[INFO] Enabling Accelerated Linear Algebra (XLA)")
         tf.config.optimizer.set_jit(True)
 
     strategy = None
@@ -74,7 +96,7 @@ def train_dual_decoder(cfg: DictConfig):
         strategy = tf.distribute.MirroredStrategy(
             cross_device_ops=tf.distribute.HierarchicalCopyAllReduce()
         )
-        print(f'✓ Multi-GPU Strategy enabled across {strategy.num_replicas_in_sync} GPUs\n')
+        print(f'[INFO] Multi-GPU Strategy enabled across {strategy.num_replicas_in_sync} GPUs\n')
         with strategy.scope():
             optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.HYPER_PARAMETERS.LEARNING_RATE)
             if cfg.OPTIMIZATION.AMP:
@@ -112,7 +134,7 @@ def train_dual_decoder(cfg: DictConfig):
         metrics={'refined_output': [dice_coef_refined], 'region_output': [dice_coef_region]}
     )
 
-    print("\n📐 Model Summary:")
+    print("\n[INFO] Model Summary:")
     model.summary()
 
     # Data Generators wrapped with DualDecoderWrapper (Ground Truth Boundary Generator)
@@ -124,7 +146,10 @@ def train_dual_decoder(cfg: DictConfig):
 
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     tb_log_dir = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.TENSORBOARD.PATH, f"dual_decoder_{run_timestamp}")
-    checkpoint_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH, "model_dual_decoder_resnet.hdf5")
+    ckpt_ext = ".weights.h5" if cfg.CALLBACKS.MODEL_CHECKPOINT.SAVE_WEIGHTS_ONLY else ".keras"
+    weights_name = getattr(cfg.MODEL, "WEIGHTS_FILE_NAME", "model_dual_decoder_resnet")
+    checkpoint_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH, f"{weights_name}{ckpt_ext}")
+
     csv_log_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.CSV_LOGGER.PATH, f"training_logs_dual_decoder_{run_timestamp}.csv")
 
     evaluation_metric = "val_refined_output_dice_coef"
@@ -144,13 +169,34 @@ def train_dual_decoder(cfg: DictConfig):
     )
     csv_logger = CSVLogger(csv_log_path, append=cfg.CALLBACKS.CSV_LOGGER.APPEND_LOGS)
 
-    callbacks = [tensorboard_callback, early_stopping, model_checkpoint, csv_logger, timing_callback, reduce_lr]
+    detailed_metrics = ComprehensiveMetricsCallback(
+        val_generator=val_generator,
+        cfg=cfg,
+        log_dir=join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH),
+        print_table=False
+    )
 
     training_steps = data_generator.get_iterations(cfg, mode="TRAIN")
     validation_steps = data_generator.get_iterations(cfg, mode="VAL")
 
+    compact_progress = CompactProgressCallback(
+        total_steps=training_steps,
+        epochs=cfg.HYPER_PARAMETERS.EPOCHS
+    )
+
+    callbacks = [
+        compact_progress,
+        early_stopping,
+        model_checkpoint,
+        csv_logger,
+        timing_callback,
+        reduce_lr,
+        detailed_metrics,
+        tensorboard_callback
+    ]
+
     print(f"Training Steps per Epoch: {training_steps} | Validation Steps: {validation_steps}\n")
-    print("🚀 Starting training pipeline...\n")
+    print("[INFO] Starting training pipeline...\n")
 
     history = model.fit(
         x=train_generator,
@@ -162,11 +208,13 @@ def train_dual_decoder(cfg: DictConfig):
         workers=cfg.DATALOADER_WORKERS,
         max_queue_size=10,
         use_multiprocessing=False,
+        verbose=0,
     )
 
     print("\n" + "=" * 80)
-    print("✅ TRAINING COMPLETED SUCCESSFULLY")
+    print("[SUCCESS] TRAINING COMPLETED SUCCESSFULLY")
     print("=" * 80)
+
 
 
 if __name__ == "__main__":

@@ -152,8 +152,8 @@ USE_MULTI_GPUS:
   GPU_IDS: -1
 
 OPTIMIZATION:
-  AMP: True   # Độ chính xác hỗn hợp tự động - nhanh hơn 2-3 lần
-  XLA: True   # Đại số tuyến tính gia tốc - tối ưu hóa thêm
+  AMP: True   # Độ chính xác hỗn hợp tự động - nhanh hơn 2-3 lần (GPU Tensor Cores)
+  XLA: False  # Tắt XLA để tránh lỗi libdevice.10.bc trên môi trường Conda/Linux
 
 # ============ HÀM MẤT ============
 LOSS_CONFIG:
