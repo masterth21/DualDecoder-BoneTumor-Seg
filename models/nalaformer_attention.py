@@ -592,10 +592,10 @@ class NaLaFormerBottleneck(tf.keras.layers.Layer):
         self.need_proj = (C != self.d_model)
         if self.need_proj:
             self.proj_in = tf.keras.layers.Dense(
-                self.d_model, use_bias=False, name="proj_in"
+                self.d_model, use_bias=False, name=f"{self.name}_proj_in"
             )
             self.proj_out = tf.keras.layers.Dense(
-                C, use_bias=False, name="proj_out"
+                C, use_bias=False, name=f"{self.name}_proj_out"
             )
 
         self.encoder = NaLaFormerEncoder(
@@ -604,7 +604,7 @@ class NaLaFormerBottleneck(tf.keras.layers.Layer):
             num_heads=self.num_heads,
             ff_expansion=self.ff_expansion,
             dropout_rate=self.dropout_rate,
-            name="nala_encoder",
+            name=f"{self.name}_encoder",
         )
         super().build(input_shape)
 
@@ -648,6 +648,7 @@ def build_nalaformer_bottleneck(
     num_heads: int = 8,
     ff_expansion: int = 4,
     dropout_rate: float = 0.1,
+    name: str = "nalaformer_bottleneck",
 ):
     """
     Hàm tiện ích tạo NaLaFormerBottleneck layer.
@@ -663,7 +664,7 @@ def build_nalaformer_bottleneck(
         num_heads=num_heads,
         ff_expansion=ff_expansion,
         dropout_rate=dropout_rate,
-        name="nalaformer_bottleneck",
+        name=name,
     )
 
 
