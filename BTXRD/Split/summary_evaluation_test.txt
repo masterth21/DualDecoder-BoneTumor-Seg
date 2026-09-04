@@ -1,0 +1,111 @@
+
+======================================================================
+📊 KẾT QUẢ ĐÁNH GIÁ TỔNG THỂ TRÊN TẬP TEST (188 ẢNH)
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.4184 (41.84%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.6163 (61.63%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.5468 (54.68%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.7214 (72.14%)
+   - Global Dice U Ác   (Malignant)         : 0.7205 (72.05%)
+======================================================================
+======================================================================
+📌 MÔ HÌNH (MODEL): nalaformer_skip_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split/test/images | Mode: TEST (188 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-25 12:37:27
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.3852 (38.52%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.5061 (50.61%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.5114 (51.14%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.6928 (69.28%)
+   - Global Dice U Ác   (Malignant)         : 0.6920 (69.20%)
+======================================================================
+
+======================================================================
+📌 MÔ HÌNH (MODEL): nalaformer_full_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split/test/images | Mode: TEST (188 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-26 22:30:35
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.3644 (36.44%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.5387 (53.87%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.4965 (49.65%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.6821 (68.21%)
+   - Global Dice U Ác   (Malignant)         : 0.7241 (72.41%)
+======================================================================
+
+======================================================================
+📌 MÔ HÌNH (MODEL): loglinear_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split/test/images | Mode: TEST (188 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-27 11:00:43
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.3982 (39.82%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.5168 (51.68%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.5282 (52.82%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.7267 (72.67%)
+   - Global Dice U Ác   (Malignant)         : 0.7203 (72.03%)
+======================================================================
+
+======================================================================
+📌 MÔ HÌNH (MODEL): loglinear_skip_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split/test/images | Mode: TEST (188 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-27 20:59:24
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.3785 (37.85%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.6119 (61.19%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.5116 (51.16%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.7152 (71.52%)
+   - Global Dice U Ác   (Malignant)         : 0.7524 (75.24%)
+======================================================================
+
+======================================================================
+📌 MÔ HÌNH (MODEL): loglinear_full_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split/test/images | Mode: TEST (188 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-29 21:01:29
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.3745 (37.45%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.5623 (56.23%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.5036 (50.36%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.6768 (67.68%)
+   - Global Dice U Ác   (Malignant)         : 0.7382 (73.82%)
+======================================================================
+
+======================================================================
+📌 MÔ HÌNH (MODEL): multipole_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split/test/images | Mode: TEST (188 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-30 08:43:49
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Metrics):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.4242 (42.42%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.4988 (49.88%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.5053 (50.53%)
+   - Mean IoU Vùng U   (Jaccard Index)      : 0.4074 (40.74%)
+   - Mean Precision    (Độ chính xác)       : 0.7452 (74.52%)
+   - Mean Recall       (Độ nhạy Sensitivity): 0.5224 (52.24%)
+   - Mean F1-Score                          : 0.6142 (61.42%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Metrics):
+   - Global Dice U Lành (Benign)            : 0.6906 (69.06%)
+   - Global Dice U Ác   (Malignant)         : 0.6564 (65.64%)
+   - Global IoU Vùng U  (Jaccard Index)      : 0.5752 (57.52%)
+   - Global Precision   (Độ chính xác)       : 0.7917 (79.17%)
+   - Global Recall      (Độ nhạy Sensitivity): 0.6778 (67.78%)
+   - Global F1-Score                         : 0.7303 (73.03%)
+======================================================================
+
