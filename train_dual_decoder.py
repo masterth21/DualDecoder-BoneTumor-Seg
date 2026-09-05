@@ -37,7 +37,7 @@ from data_generators.data_generator import DualDecoderWrapper
 from data_preparation.verify_data import verify_data
 from utils.general_utils import create_directory, join_paths, set_gpus, suppress_warnings
 from models.model import prepare_model
-from losses.loss import DiceCoefficient
+from losses.loss import MacroDiceMetric, DiceCoefficient
 from losses.dual_decoder_loss import get_dual_decoder_losses
 from callbacks.timing_callback import TimingCallback
 from callbacks.comprehensive_metrics_callback import ComprehensiveMetricsCallback
@@ -113,14 +113,8 @@ def train_dual_decoder(cfg: DictConfig):
             )
             if cfg.OPTIMIZATION.AMP:
                 optimizer = mixed_precision.LossScaleOptimizer(optimizer, dynamic=True)
-            dice_coef_refined = tf.keras.metrics.MeanMetricWrapper(
-                name="dice_coef",
-                fn=DiceCoefficient(post_processed=True, classes=cfg.OUTPUT.CLASSES)
-            )
-            dice_coef_region = tf.keras.metrics.MeanMetricWrapper(
-                name="dice_coef",
-                fn=DiceCoefficient(post_processed=True, classes=cfg.OUTPUT.CLASSES)
-            )
+            dice_coef_refined = MacroDiceMetric(classes=cfg.OUTPUT.CLASSES, name="dice_coef")
+            dice_coef_region = MacroDiceMetric(classes=cfg.OUTPUT.CLASSES, name="dice_coef")
             model = prepare_model(cfg, training=True)
     else:
         clipnorm_val = float(getattr(cfg.HYPER_PARAMETERS, 'GRADIENT_CLIP', 1.0))
@@ -130,14 +124,8 @@ def train_dual_decoder(cfg: DictConfig):
         )
         if cfg.OPTIMIZATION.AMP:
             optimizer = mixed_precision.LossScaleOptimizer(optimizer, dynamic=True)
-        dice_coef_refined = tf.keras.metrics.MeanMetricWrapper(
-            name="dice_coef",
-            fn=DiceCoefficient(post_processed=True, classes=cfg.OUTPUT.CLASSES)
-        )
-        dice_coef_region = tf.keras.metrics.MeanMetricWrapper(
-            name="dice_coef",
-            fn=DiceCoefficient(post_processed=True, classes=cfg.OUTPUT.CLASSES)
-        )
+        dice_coef_refined = MacroDiceMetric(classes=cfg.OUTPUT.CLASSES, name="dice_coef")
+        dice_coef_region = MacroDiceMetric(classes=cfg.OUTPUT.CLASSES, name="dice_coef")
         model = prepare_model(cfg, training=True)
 
     # Get multi-output loss dictionary and loss weights
@@ -164,15 +152,17 @@ def train_dual_decoder(cfg: DictConfig):
     tb_log_dir = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.TENSORBOARD.PATH, f"dual_decoder_{run_timestamp}")
     ckpt_ext = ".weights.h5" if cfg.CALLBACKS.MODEL_CHECKPOINT.SAVE_WEIGHTS_ONLY else ".keras"
     weights_name = getattr(cfg.MODEL, "WEIGHTS_FILE_NAME", "model_dual_decoder_resnet")
-    checkpoint_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH, f"{weights_name}{ckpt_ext}")
+    checkpoint_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH, f"{weights_name}_{run_timestamp}{ckpt_ext}")
+    print(f"[INFO] Model checkpoint will be saved to: {checkpoint_path}")
 
     csv_log_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.CSV_LOGGER.PATH, f"training_logs_dual_decoder_{run_timestamp}.csv")
 
     evaluation_metric = "val_refined_output_dice_coef"
 
     timing_callback = TimingCallback()
+    reduce_lr_patience = getattr(cfg.CALLBACKS.REDUCE_LR_ON_PLATEAU, "PATIENCE", 15)
     reduce_lr = ReduceLROnPlateau(
-        monitor=evaluation_metric, factor=0.5, patience=10, min_lr=1e-7, mode='max', verbose=cfg.VERBOSE
+        monitor=evaluation_metric, factor=0.5, patience=reduce_lr_patience, min_lr=1e-7, mode='max', verbose=cfg.VERBOSE
     )
     tensorboard_callback = TensorBoard(
         log_dir=tb_log_dir, write_graph=False, profile_batch=0, update_freq='epoch'
@@ -189,7 +179,7 @@ def train_dual_decoder(cfg: DictConfig):
         val_generator=val_generator,
         cfg=cfg,
         log_dir=join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH),
-        print_table=False
+        print_table=True
     )
 
     training_steps = data_generator.get_iterations(cfg, mode="TRAIN")

@@ -11,6 +11,7 @@ def boundary_dice_loss(y_true, y_pred, smooth=1e-6):
     """
     Per-class Dice Loss specially computed for sparse boundary maps.
     Weights tumor boundaries heavily over background borders.
+    Uses presence masking so absent boundaries do not add flat penalty.
     """
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
@@ -21,7 +22,11 @@ def boundary_dice_loss(y_true, y_pred, smooth=1e-6):
     dice_per_class = (2.0 * intersection + smooth) / (union + smooth)
 
     class_weights = tf.constant([0.1, 0.45, 0.45], dtype=tf.float32)
-    loss = tf.reduce_sum((1.0 - dice_per_class) * class_weights, axis=-1)
+    has_gt = tf.cast(tf.reduce_sum(y_true, axis=[1, 2]) > 0, tf.float32)
+    sample_weights = class_weights * has_gt
+    normalized_weights = sample_weights / (tf.reduce_sum(sample_weights, axis=-1, keepdims=True) + 1e-7)
+
+    loss = tf.reduce_sum((1.0 - dice_per_class) * normalized_weights, axis=-1)
     return tf.reduce_mean(loss)
 
 
@@ -50,21 +55,25 @@ def boundary_bce_dice_loss(y_true, y_pred, alpha=0.5, beta=0.5):
 def region_dice_ce_loss(y_true, y_pred, smooth=1e-6):
     """
     Region Loss: Weighted Soft Cross-Entropy + Per-Class Dice Loss for Region Segmentation.
-    Phạt nặng việc chỉ dự đoán nền (background) để buộc mô hình tập trung phát hiện khối u.
+    Uses presence masking on Dice Loss so absent classes do not add flat penalties,
+    while Weighted Cross-Entropy strictly penalizes any false positive predictions.
     """
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
 
-    # 1. Per-Class Dice Loss (tính riêng từng kênh u dọc theo [H, W])
+    # 1. Per-Class Dice Loss with Presence Masking
     intersection = tf.reduce_sum(y_true * y_pred, axis=[1, 2])
     union = tf.reduce_sum(y_true, axis=[1, 2]) + tf.reduce_sum(y_pred, axis=[1, 2])
     dice_per_class = (2.0 * intersection + smooth) / (union + smooth)
 
-    # Trọng số: Nền: 0.1, U Lành: 0.45, U Ác: 0.45
     class_weights = tf.constant([0.1, 0.45, 0.45], dtype=tf.float32)
-    loss_dice = tf.reduce_mean(tf.reduce_sum((1.0 - dice_per_class) * class_weights, axis=-1))
+    has_gt = tf.cast(tf.reduce_sum(y_true, axis=[1, 2]) > 0, tf.float32)
+    sample_weights = class_weights * has_gt
+    normalized_weights = sample_weights / (tf.reduce_sum(sample_weights, axis=-1, keepdims=True) + 1e-7)
 
-    # 2. Weighted Cross-Entropy Loss
+    loss_dice = tf.reduce_mean(tf.reduce_sum((1.0 - dice_per_class) * normalized_weights, axis=-1))
+
+    # 2. Weighted Cross-Entropy Loss (applies to all classes to suppress false positives)
     y_pred_clipped = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
     ce_per_class = -y_true * tf.math.log(y_pred_clipped)
     loss_ce = tf.reduce_mean(tf.reduce_sum(ce_per_class * class_weights, axis=-1))

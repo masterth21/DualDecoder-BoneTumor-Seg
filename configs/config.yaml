@@ -72,7 +72,7 @@ CALLBACKS:
     PATH: "checkpoint/tb_logs"
 
   EARLY_STOPPING:
-    PATIENCE: 25  # Tăng để cho huấn luyện đầy đủ
+    PATIENCE: 35  # 35 epoch không cải thiện mới dừng
     MIN_DELTA: 1e-4  # Ngưỡng cải tiến tối thiểu
 
   MODEL_CHECKPOINT:
@@ -84,11 +84,11 @@ CALLBACKS:
     PATH: "checkpoint"
     APPEND_LOGS: False
 
-  # Giảm Learning Rate khi loss không cải thiện (MỚI)
+  # Giảm Learning Rate khi loss không cải thiện
   REDUCE_LR_ON_PLATEAU:
-    MONITOR: "val_dice_coef"
+    MONITOR: "val_refined_output_dice_coef"
     FACTOR: 0.5  # Giảm LR xuống 1/2
-    PATIENCE: 10  # Sau 10 epoch không cải thiện
+    PATIENCE: 15  # Sau 15 epoch không cải thiện mới giảm LR
     MIN_LR: 1e-7
     VERBOSE: 1
 

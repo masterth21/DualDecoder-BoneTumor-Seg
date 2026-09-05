@@ -56,68 +56,69 @@ def ssim_loss(y_true, y_pred, smooth=1.e-9):
     return K.mean(1 - ssim_value + smooth, axis=0)
 
 
-class DiceCoefficient(tf.keras.metrics.Metric):
+class MacroDiceMetric(tf.keras.metrics.Metric):
     """
-    Dice coefficient metric. Can be used to calculate dice on probabilities
-    or on their respective classes
+    Keras Metric that calculates Macro Dice score for foreground tumor classes (Benign & Malignant).
+    Accumulates TP, FP, FN across all batches in the epoch:
+    1. Prevents 0/0=1.0 empty-class artifact on individual images (starts at 0.0000 on Epoch 0).
+    2. True representation of segmentation overlap (does not divide tumor dice in half).
+    3. Correctly triggers ReduceLROnPlateau and ModelCheckpoint when the model actually improves.
     """
 
-    def __init__(self, post_processed: bool,
-                 classes: int,
-                 name='dice_coef',
-                 **kwargs):
-        """
-        Set post_processed=False if dice coefficient needs to be calculated
-        on probabilities. Set post_processed=True if probabilities needs to
-        be first converted/mapped into their respective class.
-        """
-        super(DiceCoefficient, self).__init__(name=name, **kwargs)
-        self.dice_value = self.add_weight(name='dice_value', initializer='zeros')
-        self.post_processed = post_processed
+    def __init__(self, classes: int = 3, name: str = 'dice_coef', post_processed: bool = True, **kwargs):
+        super(MacroDiceMetric, self).__init__(name=name, **kwargs)
         self.classes = classes
-        if self.classes == 1:
-            self.axis = [1, 2, 3]
-        else:
-            self.axis = [1, 2, ]
+        self.post_processed = post_processed
+        self.num_fg = classes - 1 if classes > 1 else 1
+        self.tp = self.add_weight(name='tp', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+        self.fp = self.add_weight(name='fp', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+        self.fn = self.add_weight(name='fn', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        if self.post_processed:
-            if self.classes == 1:
-                y_true_ = y_true
-                y_pred_ = tf.where(y_pred > .5, 1.0, 0.0)
-                self.dice_value.assign(self.dice_coef(y_true_, y_pred_))
-            else:
-                y_true_cls = tf.math.argmax(y_true, axis=-1, output_type=tf.int32)
-                y_pred_cls = tf.math.argmax(y_pred, axis=-1, output_type=tf.int32)
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
 
-                # One-hot representation
-                y_true_1hot = tf.one_hot(y_true_cls, self.classes, dtype=tf.float32)
-                y_pred_1hot = tf.one_hot(y_pred_cls, self.classes, dtype=tf.float32)
-
-                # Macro Dice over foreground tumor classes [..., 1:] (Benign & Malignant)
-                intersection = tf.reduce_sum(y_true_1hot[..., 1:] * y_pred_1hot[..., 1:], axis=[1, 2])
-                union = tf.reduce_sum(y_true_1hot[..., 1:], axis=[1, 2]) + tf.reduce_sum(y_pred_1hot[..., 1:], axis=[1, 2])
-                dice_tumor = (2.0 * intersection + 1e-7) / (union + 1e-7)
-                self.dice_value.assign(tf.reduce_mean(dice_tumor))
+        if self.classes == 1:
+            y_pred_bin = tf.cast(y_pred > 0.5, tf.float32)
+            y_true_bin = tf.cast(y_true > 0.5, tf.float32)
+            tp = tf.reduce_sum(y_true_bin * y_pred_bin)
+            fp = tf.reduce_sum((1.0 - y_true_bin) * y_pred_bin)
+            fn = tf.reduce_sum(y_true_bin * (1.0 - y_pred_bin))
+            self.tp.assign_add([tp])
+            self.fp.assign_add([fp])
+            self.fn.assign_add([fn])
         else:
-            self.dice_value.assign(self.dice_coef(y_true, y_pred))
+            y_true_cls = tf.math.argmax(y_true, axis=-1, output_type=tf.int32)
+            y_pred_cls = tf.math.argmax(y_pred, axis=-1, output_type=tf.int32)
+
+            y_true_1hot = tf.one_hot(y_true_cls, self.classes, dtype=tf.float32)
+            y_pred_1hot = tf.one_hot(y_pred_cls, self.classes, dtype=tf.float32)
+
+            # Foreground tumor classes: 1 (Benign), 2 (Malignant)
+            y_t_fg = y_true_1hot[..., 1:]
+            y_p_fg = y_pred_1hot[..., 1:]
+
+            tp = tf.reduce_sum(y_t_fg * y_p_fg, axis=[0, 1, 2])
+            fp = tf.reduce_sum((1.0 - y_t_fg) * y_p_fg, axis=[0, 1, 2])
+            fn = tf.reduce_sum(y_t_fg * (1.0 - y_p_fg), axis=[0, 1, 2])
+
+            self.tp.assign_add(tp)
+            self.fp.assign_add(fp)
+            self.fn.assign_add(fn)
 
     def result(self):
-        return self.dice_value
+        eps = 1e-7
+        dice_per_class = (2.0 * self.tp + eps) / (2.0 * self.tp + self.fp + self.fn + eps)
+        return tf.reduce_mean(dice_per_class)
 
     def reset_state(self):
-        self.dice_value.assign(0.0)  # reset metric state
+        self.tp.assign(tf.zeros_like(self.tp))
+        self.fp.assign(tf.zeros_like(self.fp))
+        self.fn.assign(tf.zeros_like(self.fn))
 
-    def dice_coef(self, y_true, y_pred, smooth=1.e-9):
-        """
-        Calculate dice coefficient.
-        Input shape could be either Batch x Height x Width x #Classes (BxHxWxN)
-        or Batch x Height x Width (BxHxW).
-        Using Mean as reduction type for batch values.
-        """
-        intersection = K.sum(y_true * y_pred, axis=self.axis)
-        union = K.sum(y_true, axis=self.axis) + K.sum(y_pred, axis=self.axis)
-        return K.mean((2. * intersection + smooth) / (union + smooth), axis=0)
+
+# Backwards compatibility alias
+DiceCoefficient = MacroDiceMetric
 
 def bmt_boundary_aware_loss(y_true, y_pred):
     """
