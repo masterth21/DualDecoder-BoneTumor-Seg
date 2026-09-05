@@ -49,8 +49,10 @@ class CosineDirectionMap(tf.keras.layers.Layer):
 
     def call(self, x):
         # x: (B, N, d)
-        norm = tf.norm(x, axis=-1, keepdims=True)              # (B, N, 1)
-        direction = x / (norm + self.eps)                       # (B, N, d)
+        x_dtype = x.dtype
+        x_f32 = tf.cast(x, tf.float32)
+        norm = tf.sqrt(tf.reduce_sum(tf.square(x_f32), axis=-1, keepdims=True) + self.eps) # (B, N, 1)
+        direction = x_f32 / norm                                                             # (B, N, d)
 
         cos_dir = tf.math.cos(direction)                        # (B, N, d)
         sin_dir = tf.math.sin(direction)                        # (B, N, d)
@@ -59,8 +61,8 @@ class CosineDirectionMap(tf.keras.layers.Layer):
         cos_sin = tf.concat([cos_dir, sin_dir], axis=-1)        # (B, N, 2d)
 
         # Nhân với biên độ |x|:  broadcast norm (B,N,1) × (B,N,2d)
-        abs_norm = tf.abs(norm)                                  # (B, N, 1)
-        return abs_norm * cos_sin                                # (B, N, 2d)
+        out = norm * cos_sin                                    # (B, N, 2d)
+        return tf.cast(out, x_dtype)
 
     def get_config(self):
         config = super().get_config()
@@ -103,17 +105,21 @@ class QueryFeatureMap(tf.keras.layers.Layer):
 
     def call(self, q):
         # q: (B, N, d)
-        norm = tf.norm(q, axis=-1, keepdims=True)               # (B, N, 1)
-        direction = q / (norm + self.eps)                        # (B, N, d)
+        q_dtype = q.dtype
+        q_f32 = tf.cast(q, tf.float32)
+        norm = tf.sqrt(tf.reduce_sum(tf.square(q_f32), axis=-1, keepdims=True) + self.eps) # (B, N, 1)
+        direction = q_f32 / norm                                                             # (B, N, d)
+
+        scale_f32 = tf.cast(self.scale, tf.float32)
+        tau_f32 = tf.cast(self.tau, tf.float32)
 
         # Công thức chuẩn bài báo NaLaFormer Eq.(4): f(||q||) = scale * (tau + tanh(||q||))
-        # Dùng softplus(scale) để ép scale luôn dương, khống chế f_norm trong [0.1, 3.0]
-        scale_pos = tf.nn.softplus(self.scale)
-        f_norm = scale_pos * (self.tau + tf.math.tanh(norm))
+        scale_pos = tf.nn.softplus(scale_f32)
+        f_norm = scale_pos * (tau_f32 + tf.math.tanh(norm))
         f_norm = tf.clip_by_value(f_norm, 0.1, 3.0)              # (B, N, 1)
 
-        # d(q)^{f(||q||)} — Chuẩn bài báo: base d(q) > 0 nhờ softplus(norm) + 1e-4
-        d_base = tf.nn.softplus(norm) + 1e-4
+        # d(q)^{f(||q||)} — Base d(q) > 0 được kẹp trong [1e-4, 10.0] tránh tràn số lũy thừa
+        d_base = tf.clip_by_value(tf.nn.softplus(norm) + 1e-4, 1e-4, 10.0)
         d_power = tf.math.pow(d_base, f_norm)                   # (B, N, 1)
 
         # Cosine direction encoding: [cos(dir); sin(dir)]
@@ -121,7 +127,8 @@ class QueryFeatureMap(tf.keras.layers.Layer):
         sin_dir = tf.math.sin(direction)                         # (B, N, d)
         cos_sin = tf.concat([cos_dir, sin_dir], axis=-1)         # (B, N, 2d)
 
-        return d_power * cos_sin                                 # (B, N, 2d)
+        out = d_power * cos_sin                                  # (B, N, 2d)
+        return tf.cast(out, q_dtype)
 
     def get_config(self):
         config = super().get_config()
@@ -153,14 +160,15 @@ class KeyFeatureMap(tf.keras.layers.Layer):
 
     def call(self, k):
         # k: (B, N, d)
-        norm = tf.norm(k, axis=-1, keepdims=True)               # (B, N, 1)
-        direction = k / (norm + self.eps)                        # (B, N, d)
+        k_dtype = k.dtype
+        k_f32 = tf.cast(k, tf.float32)
+        norm = tf.sqrt(tf.reduce_sum(tf.square(k_f32), axis=-1, keepdims=True) + self.eps) # (B, N, 1)
+        direction = k_f32 / norm                                                             # (B, N, d)
 
-        # Công thức chuẩn bài báo NaLaFormer Eq.(5): k^λ với lambda > 0 nhờ softplus
-        lam_pos = tf.nn.softplus(self.lam)
-        lam_pos = tf.clip_by_value(lam_pos, 0.1, 3.0)
-        
-        k_base = tf.nn.softplus(norm) + 1e-4
+        lam_f32 = tf.cast(self.lam, tf.float32)
+        lam_pos = tf.clip_by_value(tf.nn.softplus(lam_f32), 0.1, 3.0)
+
+        k_base = tf.clip_by_value(tf.nn.softplus(norm) + 1e-4, 1e-4, 10.0)
         k_pow = tf.math.pow(k_base, lam_pos)                     # (B, N, 1)
 
         # Cosine direction encoding
@@ -168,7 +176,8 @@ class KeyFeatureMap(tf.keras.layers.Layer):
         sin_dir = tf.math.sin(direction)
         cos_sin = tf.concat([cos_dir, sin_dir], axis=-1)         # (B, N, 2d)
 
-        return k_pow * cos_sin                                   # (B, N, 2d)
+        out = k_pow * cos_sin                                    # (B, N, 2d)
+        return tf.cast(out, k_dtype)
 
     def get_config(self):
         config = super().get_config()
@@ -207,7 +216,9 @@ class GatedActivation(tf.keras.layers.Layer):
         super().build(input_shape)
 
     def call(self, x):
-        return self.scale * (self.tau + tf.math.tanh(x))
+        scale = tf.cast(self.scale, x.dtype)
+        tau = tf.cast(self.tau, x.dtype)
+        return scale * (tau + tf.math.tanh(x))
 
     def get_config(self):
         return super().get_config()
@@ -272,6 +283,8 @@ class QNormAwareLinearAttention(tf.keras.layers.Layer):
         Returns:
             (B, N, d_model)
         """
+        orig_dtype = x.dtype
+
         # ---- Project + LayerNorm ----
         Q = self.norm_q(self.W_q(x))    # (B, N, d)
         K = self.norm_k(self.W_k(x))    # (B, N, d)
@@ -281,22 +294,29 @@ class QNormAwareLinearAttention(tf.keras.layers.Layer):
         Q_prime = self.phi_q(Q)   # (B, N, 2d)
         K_prime = self.phi_k(K)   # (B, N, 2d)
 
+        # Cast attention accumulation to float32 to prevent float16 overflow (>65504)
+        # when summing over spatial tokens N (e.g. N=2304 at skip stage 3)
+        Q_p32 = tf.cast(Q_prime, tf.float32)
+        K_p32 = tf.cast(K_prime, tf.float32)
+        V_32 = tf.cast(V, tf.float32)
+
         # ---- K'^T V  (linear attention kernel) ----
-        # K_prime: (B, N, 2d),  V: (B, N, d)
+        # K_p32: (B, N, 2d),  V_32: (B, N, d)
         # S = K'^T V  →  (B, 2d, d)
-        S = tf.einsum("bni,bnj->bij", K_prime, V)   # (B, 2d, d)
+        S = tf.einsum("bni,bnj->bij", K_p32, V_32)   # (B, 2d, d)
 
         # ---- Q' × S ----
-        # Q_prime: (B, N, 2d),  S: (B, 2d, d)  →  (B, N, d)
-        attn_out = tf.einsum("bni,bij->bnj", Q_prime, S)  # (B, N, d)
+        # Q_p32: (B, N, 2d),  S: (B, 2d, d)  →  (B, N, d)
+        attn_out = tf.einsum("bni,bij->bnj", Q_p32, S)  # (B, N, d)
 
         # ---- Normalisation (chia cho tổng K' không âm) ----
-        # Dùng tf.abs(K_prime) và tf.abs(Q_prime) để tránh việc cos/sin làm triệt tiêu z về 0 hoặc số âm
-        K_sum = tf.reduce_sum(tf.abs(K_prime), axis=1, keepdims=False)  # (B, 2d)
-        z = tf.einsum("bni,bi->bn", tf.abs(Q_prime), K_sum)            # (B, N)
+        # Dùng tf.abs(K_p32) và tf.abs(Q_p32) để tránh việc cos/sin làm triệt tiêu z về 0 hoặc số âm
+        K_sum = tf.reduce_sum(tf.abs(K_p32), axis=1, keepdims=False)  # (B, 2d)
+        z = tf.einsum("bni,bi->bn", tf.abs(Q_p32), K_sum)            # (B, N)
         z = tf.maximum(z, 1e-4)                                        # Sàn an toàn 1e-4
         attn_out = attn_out / z[..., tf.newaxis]                        # (B, N, d)
         attn_out = tf.clip_by_value(attn_out, -100.0, 100.0)            # Khống chế biên độ gradient
+        attn_out = tf.cast(attn_out, orig_dtype)
 
         # ---- Gating (ACT[G]) ----
         G = self.gate_act(self.gate_proj(x))  # (B, N, d)

@@ -279,7 +279,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     f_region_full = conv_block(f_region_full, 32, name_prefix="f_region_full")
 
     activation_func = 'sigmoid' if num_classes == 1 else 'softmax'
-    region_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, name="region_output")(f_region_full)
+    region_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="region_output")(f_region_full)
 
     # =========================================================================
     # 3. BOUNDARY DECODER BRANCH
@@ -323,7 +323,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     f_boundary_full = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_full_up")(f_boundary)
     f_boundary_full = conv_block(f_boundary_full, 32, name_prefix="f_boundary_full")
 
-    boundary_output = layers.Conv2D(num_classes, (1, 1), activation='sigmoid', name="boundary_output")(f_boundary_full)
+    boundary_output = layers.Conv2D(num_classes, (1, 1), activation='sigmoid', dtype='float32', name="boundary_output")(f_boundary_full)
 
     # =========================================================================
     # 4. FUSION MODULE (Kết Hợp Đặc Trưng Region & Boundary)
@@ -351,7 +351,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     refine_feat = residual_refinement_block(refine_in, 64, name_prefix="refine_block1")
     refine_feat = residual_refinement_block(refine_feat, 32, name_prefix="refine_block2")
 
-    refined_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, name="refined_output")(refine_feat)
+    refined_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="refined_output")(refine_feat)
 
     # =========================================================================
     # 6. MODEL COMPOSITION (3 Outputs)

@@ -64,13 +64,12 @@ class ComprehensiveMetricsCallback(tf.keras.callbacks.Callback):
             else:
                 y_true = y_targets
 
-            # Du doan tu mo hinh
-            preds = self.model.predict(x_val, verbose=0)
+            # Du doan truc tiep tu model (nhanh hon model.predict gap 10 lan trong loop)
+            preds = self.model(x_val, training=False)
             if isinstance(preds, (list, tuple)):
-                # Lay dau ra refined_output (dau ra thu 3 hoac cuoi cung)
-                y_pred = preds[-1]
+                y_pred = preds[-1].numpy()
             else:
-                y_pred = preds
+                y_pred = preds.numpy()
 
             # Chuyen ve nhan lop (0: Nen, 1: U lanh, 2: U ac)
             if y_true.shape[-1] > 1:

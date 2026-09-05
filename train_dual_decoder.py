@@ -4,6 +4,8 @@ Handles boundary ground truth generation, multi-output compilation, mixed precis
 """
 
 
+import os
+os.environ["TF_ENABLE_GPU_GARBAGE_COLLECTION"] = "false"
 from datetime import datetime, timedelta
 import sys
 if sys.platform == "win32":
@@ -98,7 +100,11 @@ def train_dual_decoder(cfg: DictConfig):
         )
         print(f'[INFO] Multi-GPU Strategy enabled across {strategy.num_replicas_in_sync} GPUs\n')
         with strategy.scope():
-            optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.HYPER_PARAMETERS.LEARNING_RATE)
+            clipnorm_val = float(getattr(cfg.HYPER_PARAMETERS, 'GRADIENT_CLIP', 1.0))
+            optimizer = tf.keras.optimizers.Adam(
+                learning_rate=cfg.HYPER_PARAMETERS.LEARNING_RATE,
+                clipnorm=clipnorm_val
+            )
             if cfg.OPTIMIZATION.AMP:
                 optimizer = mixed_precision.LossScaleOptimizer(optimizer, dynamic=True)
             dice_coef_refined = tf.keras.metrics.MeanMetricWrapper(
@@ -111,7 +117,11 @@ def train_dual_decoder(cfg: DictConfig):
             )
             model = prepare_model(cfg, training=True)
     else:
-        optimizer = tf.keras.optimizers.Adam(learning_rate=cfg.HYPER_PARAMETERS.LEARNING_RATE)
+        clipnorm_val = float(getattr(cfg.HYPER_PARAMETERS, 'GRADIENT_CLIP', 1.0))
+        optimizer = tf.keras.optimizers.Adam(
+            learning_rate=cfg.HYPER_PARAMETERS.LEARNING_RATE,
+            clipnorm=clipnorm_val
+        )
         if cfg.OPTIMIZATION.AMP:
             optimizer = mixed_precision.LossScaleOptimizer(optimizer, dynamic=True)
         dice_coef_refined = tf.keras.metrics.MeanMetricWrapper(
