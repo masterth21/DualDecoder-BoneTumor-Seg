@@ -101,12 +101,14 @@ def denormalize_mask(mask, classes):
     return mask.astype(np.int32)
 
 
-def display(display_list, show_true_mask=False):
+def display(display_list, show_true_mask=False, save_path=None):
     """
-    Show list of images. it could be
+    Show or save list of images. It could be
     either [image, true_mask, predicted_mask] or [image, predicted_mask].
-    Set show_true_mask to True if true mask is available or vice versa
+    Set show_true_mask to True if true mask is available.
+    Set save_path to a file path to automatically save the comparison image.
     """
+    import os
     if show_true_mask:
         title_list = ('Input Image', 'True Mask', 'Predicted Mask')
         plt.figure(figsize=(12, 4))
@@ -124,4 +126,15 @@ def display(display_list, show_true_mask=False):
         else:
             plt.imshow(np.squeeze(display_list[i]))
             plt.axis('on')
-    plt.show()
+
+    if save_path:
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        plt.savefig(save_path, bbox_inches='tight', dpi=150)
+
+    try:
+        # Only attempt interactive show if display is available
+        if "DISPLAY" in os.environ or os.name == "nt":
+            plt.pause(0.1)
+    except Exception:
+        pass
+    plt.close()

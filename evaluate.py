@@ -40,20 +40,22 @@ def evaluate(cfg: DictConfig):
     # 1. Build model
     model = prepare_model(cfg, training=False)
 
-    # 2. Checkpoint path
-    checkpoint_path = join_paths(
-        cfg.WORK_DIR,
-        cfg.CALLBACKS.MODEL_CHECKPOINT.PATH,
-        f"{cfg.MODEL.WEIGHTS_FILE_NAME}.hdf5"
-    )
-    if not os.path.exists(checkpoint_path):
-        # Fallback to standard dual decoder name if weights file name differs
-        alt_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH, "model_dual_decoder_resnet.hdf5")
-        if os.path.exists(alt_path):
-            checkpoint_path = alt_path
+    # 2. Checkpoint path (auto-detect newest .weights.h5, .keras, or .hdf5)
+    checkpoint_path = getattr(cfg, "CHECKPOINT_PATH", None)
+    ckpt_dir = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH)
+
+    if not checkpoint_path or not os.path.exists(checkpoint_path):
+        import glob
+        pattern = os.path.join(ckpt_dir, "*model*")
+        found = [f for f in glob.glob(pattern) if f.endswith(('.weights.h5', '.keras', '.hdf5', '.h5'))]
+        if found:
+            found.sort(key=os.path.getmtime, reverse=True)
+            checkpoint_path = found[0]
+        else:
+            checkpoint_path = join_paths(ckpt_dir, f"{cfg.MODEL.WEIGHTS_FILE_NAME}.weights.h5")
 
     print(f"✓ Loading model weights from: {checkpoint_path}")
-    assert os.path.exists(checkpoint_path), f"Checkpoint does not exist at:\n{checkpoint_path}"
+    assert os.path.exists(checkpoint_path), f"Checkpoint does not exist at:\n{checkpoint_path}\nPlease train a model first!"
     model.load_weights(checkpoint_path, by_name=True, skip_mismatch=True)
 
     # 3. Data Generator
