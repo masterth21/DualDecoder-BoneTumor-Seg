@@ -5,9 +5,9 @@ import tensorflow as tf
 
 class CompactProgressCallback(tf.keras.callbacks.Callback):
     """
-    Thanh tiáº¿n trÃ¬nh gá»n gÃ ng trÃªn 1 dÃ²ng duy nháº¥t trong lÃºc huáº¥n luyá»‡n (in-place update).
-    Khi káº¿t thÃºc epoch, in ÄÃšNG 1 DÃ’NG tÃ³m táº¯t káº¿t quáº£ (Train/Val Loss, Train/Val Dice, Thá»i gian).
-    TrÃ¡nh viá»‡c terminal bá»‹ trÃ n dÃ²ng sinh ra 300-400 dÃ²ng log má»—i epoch.
+    Thanh tiến trình gọn gàng trên 1 dòng duy nhất trong lúc huấn luyện (in-place update).
+    Khi kết thúc epoch, in ĐÚNG 1 DÒNG tóm tắt kết quả (Train/Val Loss, Dice Tổng, Lành, Ác, IoU, Prec, Rec, Thời gian).
+    Tránh việc terminal bị tràn dòng sinh ra 300-400 dòng log mỗi epoch.
     """
 
     def __init__(self, total_steps, epochs):
@@ -37,7 +37,7 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
         loss = logs.get('loss', 0.0)
         refined_dice = logs.get('refined_output_dice_coef', 0.0)
 
-        # Thanh tiáº¿n trÃ¬nh gá»n ~75 kÃ½ tá»±, khÃ´ng bao giá» bá»‹ wrap trÃªn terminal
+        # Thanh tiến trình gọn ~75 ký tự, không bao giờ bị wrap trên terminal
         msg = f"\rEpoch {self.current_epoch:03d}/{self.epochs} [{bar}] {step}/{self.total_steps} ({pct:2d}%) | ETA: {eta_str} | Loss: {loss:.4f} | Dice: {refined_dice:.4f}"
         sys.stdout.write(msg)
         sys.stdout.flush()
@@ -53,21 +53,27 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
         val_dice = logs.get('val_refined_output_dice_coef', 0.0)
         val_dice_b = logs.get('val_refined_output_dice_benign', 0.0)
         val_dice_m = logs.get('val_refined_output_dice_malignant', 0.0)
+        val_iou = logs.get('val_refined_output_iou', 0.0)
+        val_prec = logs.get('val_refined_output_precision', 0.0)
+        val_rec = logs.get('val_refined_output_recall', 0.0)
 
         # Xóa dòng progress và in ĐÚNG 1 DÒNG kết quả chốt của Epoch
-        sys.stdout.write("\r" + " " * 120 + "\r")
-        if val_dice_b > 0 or val_dice_m > 0:
+        sys.stdout.write("\r" + " " * 140 + "\r")
+        if val_iou > 0 or val_prec > 0 or val_dice_b > 0 or val_dice_m > 0:
             summary = (
                 f"[Epoch {epoch + 1:03d}/{self.epochs:03d}] "
-                f"Train Loss: {train_loss:.4f} | "
+                f"Loss: {train_loss:.4f} | "
                 f"Val Loss: {val_loss:.4f} | "
-                f"Val Dice: {val_dice:.4f} (Lành: {val_dice_b:.4f}, Ác: {val_dice_m:.4f}) | "
+                f"Dice: {val_dice:.4f} (Lành: {val_dice_b:.4f}, Ác: {val_dice_m:.4f}) | "
+                f"IoU: {val_iou:.4f} | "
+                f"Prec: {val_prec:.4f} | "
+                f"Rec: {val_rec:.4f} | "
                 f"Time: {time_str}"
             )
         else:
             summary = (
                 f"[Epoch {epoch + 1:03d}/{self.epochs:03d}] "
-                f"Train Loss: {train_loss:.4f} | "
+                f"Loss: {train_loss:.4f} | "
                 f"Val Loss: {val_loss:.4f} | "
                 f"Train Dice: {train_dice:.4f} | "
                 f"Val Dice: {val_dice:.4f} | "

@@ -162,6 +162,131 @@ class ClassDiceMetric(tf.keras.metrics.Metric):
         self.fp.assign(0.0)
         self.fn.assign(0.0)
 
+
+class MacroIoUMetric(tf.keras.metrics.Metric):
+    """
+    Macro IoU across foreground tumor classes (Benign & Malignant).
+    Accumulates TP, FP, FN across batches in the epoch natively.
+    """
+    def __init__(self, classes: int = 3, name: str = 'iou', **kwargs):
+        super(MacroIoUMetric, self).__init__(name=name, **kwargs)
+        self.classes = classes
+        self.num_fg = classes - 1 if classes > 1 else 1
+        self.tp = self.add_weight(name='tp', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+        self.fp = self.add_weight(name='fp', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+        self.fn = self.add_weight(name='fn', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        y_true_cls = tf.math.argmax(y_true, axis=-1, output_type=tf.int32)
+        y_pred_cls = tf.math.argmax(y_pred, axis=-1, output_type=tf.int32)
+
+        y_true_1hot = tf.one_hot(y_true_cls, self.classes, dtype=tf.float32)
+        y_pred_1hot = tf.one_hot(y_pred_cls, self.classes, dtype=tf.float32)
+
+        y_t_fg = y_true_1hot[..., 1:]
+        y_p_fg = y_pred_1hot[..., 1:]
+
+        tp = tf.reduce_sum(y_t_fg * y_p_fg, axis=[0, 1, 2])
+        fp = tf.reduce_sum((1.0 - y_t_fg) * y_p_fg, axis=[0, 1, 2])
+        fn = tf.reduce_sum(y_t_fg * (1.0 - y_p_fg), axis=[0, 1, 2])
+
+        self.tp.assign_add(tp)
+        self.fp.assign_add(fp)
+        self.fn.assign_add(fn)
+
+    def result(self):
+        eps = 1e-7
+        iou_per_class = (self.tp + eps) / (self.tp + self.fp + self.fn + eps)
+        return tf.reduce_mean(iou_per_class)
+
+    def reset_state(self):
+        self.tp.assign(tf.zeros_like(self.tp))
+        self.fp.assign(tf.zeros_like(self.fp))
+        self.fn.assign(tf.zeros_like(self.fn))
+
+
+class MacroPrecisionMetric(tf.keras.metrics.Metric):
+    """
+    Macro Precision across foreground tumor classes.
+    """
+    def __init__(self, classes: int = 3, name: str = 'precision', **kwargs):
+        super(MacroPrecisionMetric, self).__init__(name=name, **kwargs)
+        self.classes = classes
+        self.num_fg = classes - 1 if classes > 1 else 1
+        self.tp = self.add_weight(name='tp', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+        self.fp = self.add_weight(name='fp', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        y_true_cls = tf.math.argmax(y_true, axis=-1, output_type=tf.int32)
+        y_pred_cls = tf.math.argmax(y_pred, axis=-1, output_type=tf.int32)
+
+        y_true_1hot = tf.one_hot(y_true_cls, self.classes, dtype=tf.float32)
+        y_pred_1hot = tf.one_hot(y_pred_cls, self.classes, dtype=tf.float32)
+
+        y_t_fg = y_true_1hot[..., 1:]
+        y_p_fg = y_pred_1hot[..., 1:]
+
+        tp = tf.reduce_sum(y_t_fg * y_p_fg, axis=[0, 1, 2])
+        fp = tf.reduce_sum((1.0 - y_t_fg) * y_p_fg, axis=[0, 1, 2])
+
+        self.tp.assign_add(tp)
+        self.fp.assign_add(fp)
+
+    def result(self):
+        eps = 1e-7
+        prec_per_class = (self.tp + eps) / (self.tp + self.fp + eps)
+        return tf.reduce_mean(prec_per_class)
+
+    def reset_state(self):
+        self.tp.assign(tf.zeros_like(self.tp))
+        self.fp.assign(tf.zeros_like(self.fp))
+
+
+class MacroRecallMetric(tf.keras.metrics.Metric):
+    """
+    Macro Recall across foreground tumor classes.
+    """
+    def __init__(self, classes: int = 3, name: str = 'recall', **kwargs):
+        super(MacroRecallMetric, self).__init__(name=name, **kwargs)
+        self.classes = classes
+        self.num_fg = classes - 1 if classes > 1 else 1
+        self.tp = self.add_weight(name='tp', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+        self.fn = self.add_weight(name='fn', shape=(self.num_fg,), initializer='zeros', dtype=tf.float32)
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        y_true_cls = tf.math.argmax(y_true, axis=-1, output_type=tf.int32)
+        y_pred_cls = tf.math.argmax(y_pred, axis=-1, output_type=tf.int32)
+
+        y_true_1hot = tf.one_hot(y_true_cls, self.classes, dtype=tf.float32)
+        y_pred_1hot = tf.one_hot(y_pred_cls, self.classes, dtype=tf.float32)
+
+        y_t_fg = y_true_1hot[..., 1:]
+        y_p_fg = y_pred_1hot[..., 1:]
+
+        tp = tf.reduce_sum(y_t_fg * y_p_fg, axis=[0, 1, 2])
+        fn = tf.reduce_sum(y_t_fg * (1.0 - y_p_fg), axis=[0, 1, 2])
+
+        self.tp.assign_add(tp)
+        self.fn.assign_add(fn)
+
+    def result(self):
+        eps = 1e-7
+        rec_per_class = (self.tp + eps) / (self.tp + self.fn + eps)
+        return tf.reduce_mean(rec_per_class)
+
+    def reset_state(self):
+        self.tp.assign(tf.zeros_like(self.tp))
+        self.fn.assign(tf.zeros_like(self.fn))
+
 def bmt_boundary_aware_loss(y_true, y_pred):
     """
     Bone Metastatic/Tumor Boundary-Aware Loss.
