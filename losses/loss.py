@@ -85,15 +85,22 @@ class DiceCoefficient(tf.keras.metrics.Metric):
             if self.classes == 1:
                 y_true_ = y_true
                 y_pred_ = tf.where(y_pred > .5, 1.0, 0.0)
+                self.dice_value.assign(self.dice_coef(y_true_, y_pred_))
             else:
-                y_true_ = tf.math.argmax(y_true, axis=-1, output_type=tf.int32)
-                y_pred_ = tf.math.argmax(y_pred, axis=-1, output_type=tf.int32)
-                y_true_ = tf.cast(y_true_, dtype=tf.float32)
-                y_pred_ = tf.cast(y_pred_, dtype=tf.float32)
-        else:
-            y_true_, y_pred_ = y_true, y_pred
+                y_true_cls = tf.math.argmax(y_true, axis=-1, output_type=tf.int32)
+                y_pred_cls = tf.math.argmax(y_pred, axis=-1, output_type=tf.int32)
 
-        self.dice_value.assign(self.dice_coef(y_true_, y_pred_))
+                # One-hot representation
+                y_true_1hot = tf.one_hot(y_true_cls, self.classes, dtype=tf.float32)
+                y_pred_1hot = tf.one_hot(y_pred_cls, self.classes, dtype=tf.float32)
+
+                # Macro Dice over foreground tumor classes [..., 1:] (Benign & Malignant)
+                intersection = tf.reduce_sum(y_true_1hot[..., 1:] * y_pred_1hot[..., 1:], axis=[1, 2])
+                union = tf.reduce_sum(y_true_1hot[..., 1:], axis=[1, 2]) + tf.reduce_sum(y_pred_1hot[..., 1:], axis=[1, 2])
+                dice_tumor = (2.0 * intersection + 1e-7) / (union + 1e-7)
+                self.dice_value.assign(tf.reduce_mean(dice_tumor))
+        else:
+            self.dice_value.assign(self.dice_coef(y_true, y_pred))
 
     def result(self):
         return self.dice_value

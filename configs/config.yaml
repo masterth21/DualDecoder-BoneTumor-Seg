@@ -59,8 +59,8 @@ OUTPUT:
 # ============ SIÊU THÔNG SỐ - ĐƯỢC ĐIỀU CHỈNH TỐI ƯU ============
 HYPER_PARAMETERS:
   EPOCHS: 200  # Tăng để mô hình hội tụ
-  BATCH_SIZE: 4  # Tăng từ 2 để ước lượng gradient tốt hơn
-  LEARNING_RATE: 2e-5  # LR thấp hơn để ổn định, scheduler sẽ điều chỉnh
+  BATCH_SIZE: 2  # Tối ưu cho GPU 8GB
+  LEARNING_RATE: 1e-4  # LR 1e-4 chuẩn cho Adam giúp hội tụ nhanh khỏi bẫy nền
   
   # Tối ưu hóa nâng cao
   GRADIENT_CLIP: 1.0  # Cắt gradient để tránh bùng nổ
