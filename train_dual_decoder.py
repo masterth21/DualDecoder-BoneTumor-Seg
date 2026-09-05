@@ -6,6 +6,7 @@ Handles boundary ground truth generation, multi-output compilation, mixed precis
 
 import os
 os.environ["TF_ENABLE_GPU_GARBAGE_COLLECTION"] = "false"
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 from datetime import datetime, timedelta
 import sys
 if sys.platform == "win32":
@@ -17,6 +18,11 @@ if sys.platform == "win32":
 import hydra
 from omegaconf import DictConfig
 import tensorflow as tf
+try:
+    for _gpu in tf.config.list_physical_devices('GPU'):
+        tf.config.experimental.set_memory_growth(_gpu, True)
+except Exception:
+    pass
 from tensorflow.keras import mixed_precision
 from tensorflow.keras.callbacks import (
     EarlyStopping,
