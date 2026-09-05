@@ -72,7 +72,7 @@ CALLBACKS:
     PATH: "checkpoint/tb_logs"
 
   EARLY_STOPPING:
-    PATIENCE: 35  # 35 epoch không cải thiện mới dừng
+    PATIENCE: 20  # Dừng sớm sau 20 epoch nếu không cải thiện
     MIN_DELTA: 1e-4  # Ngưỡng cải tiến tối thiểu
 
   MODEL_CHECKPOINT:
@@ -88,7 +88,7 @@ CALLBACKS:
   REDUCE_LR_ON_PLATEAU:
     MONITOR: "val_refined_output_dice_coef"
     FACTOR: 0.5  # Giảm LR xuống 1/2
-    PATIENCE: 15  # Sau 15 epoch không cải thiện mới giảm LR
+    PATIENCE: 8   # Sau 8 epoch không cải thiện thì giảm LR
     MIN_LR: 1e-7
     VERBOSE: 1
 
