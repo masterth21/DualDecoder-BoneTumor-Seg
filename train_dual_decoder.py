@@ -179,7 +179,7 @@ def train_dual_decoder(cfg: DictConfig):
         val_generator=val_generator,
         cfg=cfg,
         log_dir=join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH),
-        print_table=True
+        print_table=False
     )
 
     training_steps = data_generator.get_iterations(cfg, mode="TRAIN")
