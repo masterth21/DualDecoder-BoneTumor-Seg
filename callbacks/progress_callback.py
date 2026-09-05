@@ -51,16 +51,27 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
         val_loss = logs.get('val_loss', 0.0)
         train_dice = logs.get('refined_output_dice_coef', 0.0)
         val_dice = logs.get('val_refined_output_dice_coef', 0.0)
+        val_dice_b = logs.get('val_refined_output_dice_benign', 0.0)
+        val_dice_m = logs.get('val_refined_output_dice_malignant', 0.0)
 
-        # XÃ³a dÃ²ng progress vÃ  in ÄÃšNG 1 DÃ’NG káº¿t quáº£ chá»‘t cá»§a Epoch
-        sys.stdout.write("\r" + " " * 95 + "\r")
-        summary = (
-            f"[Epoch {epoch + 1:03d}/{self.epochs:03d}] "
-            f"Train Loss: {train_loss:.4f} | "
-            f"Val Loss: {val_loss:.4f} | "
-            f"Train Dice: {train_dice:.4f} | "
-            f"Val Dice: {val_dice:.4f} | "
-            f"Time: {time_str}"
-        )
+        # Xóa dòng progress và in ĐÚNG 1 DÒNG kết quả chốt của Epoch
+        sys.stdout.write("\r" + " " * 120 + "\r")
+        if val_dice_b > 0 or val_dice_m > 0:
+            summary = (
+                f"[Epoch {epoch + 1:03d}/{self.epochs:03d}] "
+                f"Train Loss: {train_loss:.4f} | "
+                f"Val Loss: {val_loss:.4f} | "
+                f"Val Dice: {val_dice:.4f} (Lành: {val_dice_b:.4f}, Ác: {val_dice_m:.4f}) | "
+                f"Time: {time_str}"
+            )
+        else:
+            summary = (
+                f"[Epoch {epoch + 1:03d}/{self.epochs:03d}] "
+                f"Train Loss: {train_loss:.4f} | "
+                f"Val Loss: {val_loss:.4f} | "
+                f"Train Dice: {train_dice:.4f} | "
+                f"Val Dice: {val_dice:.4f} | "
+                f"Time: {time_str}"
+            )
         print(summary)
         sys.stdout.flush()

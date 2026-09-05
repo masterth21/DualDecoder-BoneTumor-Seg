@@ -37,7 +37,7 @@ from data_generators.data_generator import DualDecoderWrapper
 from data_preparation.verify_data import verify_data
 from utils.general_utils import create_directory, join_paths, set_gpus, suppress_warnings
 from models.model import prepare_model
-from losses.loss import MacroDiceMetric, DiceCoefficient
+from losses.loss import MacroDiceMetric, DiceCoefficient, ClassDiceMetric
 from losses.dual_decoder_loss import get_dual_decoder_losses
 from callbacks.timing_callback import TimingCallback
 from callbacks.comprehensive_metrics_callback import ComprehensiveMetricsCallback
@@ -114,6 +114,8 @@ def train_dual_decoder(cfg: DictConfig):
             if cfg.OPTIMIZATION.AMP:
                 optimizer = mixed_precision.LossScaleOptimizer(optimizer, dynamic=True)
             dice_coef_refined = MacroDiceMetric(classes=cfg.OUTPUT.CLASSES, name="dice_coef")
+            dice_benign_refined = ClassDiceMetric(class_id=1, classes=cfg.OUTPUT.CLASSES, name="dice_benign")
+            dice_malignant_refined = ClassDiceMetric(class_id=2, classes=cfg.OUTPUT.CLASSES, name="dice_malignant")
             dice_coef_region = MacroDiceMetric(classes=cfg.OUTPUT.CLASSES, name="dice_coef")
             model = prepare_model(cfg, training=True)
     else:
@@ -125,6 +127,8 @@ def train_dual_decoder(cfg: DictConfig):
         if cfg.OPTIMIZATION.AMP:
             optimizer = mixed_precision.LossScaleOptimizer(optimizer, dynamic=True)
         dice_coef_refined = MacroDiceMetric(classes=cfg.OUTPUT.CLASSES, name="dice_coef")
+        dice_benign_refined = ClassDiceMetric(class_id=1, classes=cfg.OUTPUT.CLASSES, name="dice_benign")
+        dice_malignant_refined = ClassDiceMetric(class_id=2, classes=cfg.OUTPUT.CLASSES, name="dice_malignant")
         dice_coef_region = MacroDiceMetric(classes=cfg.OUTPUT.CLASSES, name="dice_coef")
         model = prepare_model(cfg, training=True)
 
@@ -135,7 +139,10 @@ def train_dual_decoder(cfg: DictConfig):
         optimizer=optimizer,
         loss=losses_dict,
         loss_weights=loss_weights,
-        metrics={'refined_output': [dice_coef_refined], 'region_output': [dice_coef_region]}
+        metrics={
+            'refined_output': [dice_coef_refined, dice_benign_refined, dice_malignant_refined],
+            'region_output': [dice_coef_region]
+        }
     )
 
     print("\n[INFO] Model Summary:")

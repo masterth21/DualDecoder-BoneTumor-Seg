@@ -120,6 +120,48 @@ class MacroDiceMetric(tf.keras.metrics.Metric):
 # Backwards compatibility alias
 DiceCoefficient = MacroDiceMetric
 
+
+class ClassDiceMetric(tf.keras.metrics.Metric):
+    """
+    Keras Metric that calculates Dice score for a specific class index
+    (class_id=1 for Benign, class_id=2 for Malignant).
+    Accumulates TP, FP, FN across batches in the epoch natively.
+    """
+    def __init__(self, class_id: int, classes: int = 3, name: str = 'dice_class', **kwargs):
+        super(ClassDiceMetric, self).__init__(name=name, **kwargs)
+        self.class_id = class_id
+        self.classes = classes
+        self.tp = self.add_weight(name='tp', initializer='zeros', dtype=tf.float32)
+        self.fp = self.add_weight(name='fp', initializer='zeros', dtype=tf.float32)
+        self.fn = self.add_weight(name='fn', initializer='zeros', dtype=tf.float32)
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        y_true_cls = tf.math.argmax(y_true, axis=-1, output_type=tf.int32)
+        y_pred_cls = tf.math.argmax(y_pred, axis=-1, output_type=tf.int32)
+
+        true_c = tf.cast(tf.equal(y_true_cls, self.class_id), tf.float32)
+        pred_c = tf.cast(tf.equal(y_pred_cls, self.class_id), tf.float32)
+
+        tp = tf.reduce_sum(true_c * pred_c)
+        fp = tf.reduce_sum((1.0 - true_c) * pred_c)
+        fn = tf.reduce_sum(true_c * (1.0 - pred_c))
+
+        self.tp.assign_add(tp)
+        self.fp.assign_add(fp)
+        self.fn.assign_add(fn)
+
+    def result(self):
+        eps = 1e-7
+        return (2.0 * self.tp + eps) / (2.0 * self.tp + self.fp + self.fn + eps)
+
+    def reset_state(self):
+        self.tp.assign(0.0)
+        self.fp.assign(0.0)
+        self.fn.assign(0.0)
+
 def bmt_boundary_aware_loss(y_true, y_pred):
     """
     Bone Metastatic/Tumor Boundary-Aware Loss.
