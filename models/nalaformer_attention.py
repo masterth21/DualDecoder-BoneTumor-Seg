@@ -689,6 +689,173 @@ def build_nalaformer_bottleneck(
 
 
 # ============================================================================
+# 11. Cross-Attention Skip Gate  — Q=decoder, K/V=skip (NaLaFormer kernel)
+# ============================================================================
+class NaLaCrossAttentionSkipGate(tf.keras.layers.Layer):
+    """
+    Cross-Attention Gate cho Skip Connection sử dụng NaLaFormer Linear Attention.
+
+    Khác biệt cốt lõi so với self-attention cũ:
+      • Q  lấy từ decoder (gating signal)  — decoder "hỏi" cần thông tin gì
+      • K, V lấy từ encoder (skip features) — encoder "trả lời" bằng đặc trưng liên quan
+
+    Mỗi head sử dụng riêng QueryFeatureMap (φ_q) và KeyFeatureMap (φ_k)
+    theo đúng cơ chế NaLaFormer: Q norm-aware + cosine direction.
+
+    Complexity: O(N × d²) — tuyến tính theo số token.
+
+    Input:  [skip, gate]  — cả hai là tensor 4D (B, H, W, C)
+    Output: attended_skip  — (B, H, W, C_skip), skip đã lọc bởi decoder
+    """
+
+    def __init__(self, d_model=128, num_heads=4, dropout_rate=0.0,
+                 eps=1e-6, **kwargs):
+        super().__init__(**kwargs)
+        assert d_model % num_heads == 0, "d_model phải chia hết cho num_heads"
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.dropout_rate = dropout_rate
+        self.eps = eps
+
+    def build(self, input_shape):
+        skip_shape, gate_shape = input_shape
+        C_skip = skip_shape[-1]
+
+        # Input projections
+        self.proj_skip = tf.keras.layers.Dense(self.d_model, use_bias=False, name="proj_skip")
+        self.proj_gate = tf.keras.layers.Dense(self.d_model, use_bias=False, name="proj_gate")
+
+        # Q (from decoder)
+        self.W_q = tf.keras.layers.Dense(self.d_model, use_bias=False, name="W_q")
+        self.norm_q = tf.keras.layers.LayerNormalization(epsilon=1e-5, name="norm_q")
+
+        # K, V (from encoder skip)
+        self.W_k = tf.keras.layers.Dense(self.d_model, use_bias=False, name="W_k")
+        self.W_v = tf.keras.layers.Dense(self.d_model, use_bias=False, name="W_v")
+        self.norm_k = tf.keras.layers.LayerNormalization(epsilon=1e-5, name="norm_k")
+
+        # NaLa feature maps — một bộ riêng cho mỗi head
+        self.phi_q_heads = [
+            QueryFeatureMap(eps=self.eps, name=f"phi_q_h{i}")
+            for i in range(self.num_heads)
+        ]
+        self.phi_k_heads = [
+            KeyFeatureMap(eps=self.eps, name=f"phi_k_h{i}")
+            for i in range(self.num_heads)
+        ]
+
+        # Output gating (decoder drives gate)
+        self.gate_proj = tf.keras.layers.Dense(self.d_model, use_bias=True, name="gate_proj")
+        self.gate_act = GatedActivation(name="gate_act")
+
+        # Output
+        self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=1e-5, name="attn_ln")
+        self.out_proj = tf.keras.layers.Dense(self.d_model, use_bias=False, name="out_proj")
+        self.proj_back = tf.keras.layers.Dense(C_skip, use_bias=False, name="proj_back")
+        self.out_bn = tf.keras.layers.BatchNormalization(name="out_bn")
+
+        super().build(input_shape)
+
+    def call(self, inputs, training=None):
+        skip, gate = inputs   # (B,H,W,C_skip), (B,H,W,C_gate)
+
+        shape_s = tf.shape(skip)
+        B, H, W = shape_s[0], shape_s[1], shape_s[2]
+        N = H * W
+
+        # Flatten spatial → sequence
+        skip_seq = tf.reshape(skip, [B, N, -1])
+        gate_seq = tf.reshape(gate, [B, N, -1])
+        orig_dtype = skip_seq.dtype
+
+        # Project to d_model
+        kv_emb = self.proj_skip(skip_seq)   # (B, N, d_model) — từ encoder
+        q_emb  = self.proj_gate(gate_seq)   # (B, N, d_model) — từ decoder
+
+        # Cross-attention projections: Q từ decoder, K/V từ encoder
+        Q = self.norm_q(self.W_q(q_emb))
+        K = self.norm_k(self.W_k(kv_emb))
+        V = self.W_v(kv_emb)
+
+        # Split heads
+        Q_heads = tf.split(Q, self.num_heads, axis=-1)
+        K_heads = tf.split(K, self.num_heads, axis=-1)
+        V_heads = tf.split(V, self.num_heads, axis=-1)
+
+        head_outputs = []
+        for i in range(self.num_heads):
+            q_phi = self.phi_q_heads[i](Q_heads[i])   # (B, N, 2·head_dim)
+            k_phi = self.phi_k_heads[i](K_heads[i])   # (B, N, 2·head_dim)
+
+            q_f32 = tf.cast(q_phi, tf.float32)
+            k_f32 = tf.cast(k_phi, tf.float32)
+            v_f32 = tf.cast(V_heads[i], tf.float32)
+
+            # Linear attention: S = K^T V,  out = Q S
+            S = tf.einsum("bni,bnj->bij", k_f32, v_f32)        # (B, 2·hd, hd)
+            attn = tf.einsum("bni,bij->bnj", q_f32, S)          # (B, N, hd)
+
+            # Chuẩn hóa (normaliser Z)
+            k_sum = tf.reduce_sum(tf.abs(k_f32), axis=1)        # (B, 2·hd)
+            z = tf.einsum("bni,bi->bn", tf.abs(q_f32), k_sum)  # (B, N)
+            z = tf.maximum(z, 1e-4)
+            attn = attn / z[..., tf.newaxis]
+            attn = tf.clip_by_value(attn, -100.0, 100.0)
+            attn = tf.cast(attn, orig_dtype)
+
+            head_outputs.append(attn)
+
+        # Nối lại tất cả heads
+        attn_out = tf.concat(head_outputs, axis=-1)   # (B, N, d_model)
+
+        # Gating bởi decoder signal
+        G = self.gate_act(self.gate_proj(q_emb))
+        out = attn_out * G
+        out = self.layer_norm(out)
+        out = self.out_proj(out)
+
+        # Chiếu về số kênh ban đầu của skip và reshape về spatial
+        out = self.proj_back(out)
+        out = tf.reshape(out, tf.shape(skip))
+
+        # Residual + BatchNorm
+        attended = skip + out
+        attended = self.out_bn(attended, training=training)
+        return attended
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "d_model": self.d_model,
+            "num_heads": self.num_heads,
+            "dropout_rate": self.dropout_rate,
+            "eps": self.eps,
+        })
+        return config
+
+
+def build_nala_cross_attention(
+    d_model: int = 128,
+    num_heads: int = 4,
+    dropout_rate: float = 0.0,
+    name: str = "nala_cross_attn",
+):
+    """
+    Helper: tạo NaLaCrossAttentionSkipGate.
+    
+    Nhận [skip, gate] và trả về attended_skip.
+    Q = gate (decoder), K/V = skip (encoder).
+    """
+    return NaLaCrossAttentionSkipGate(
+        d_model=d_model,
+        num_heads=num_heads,
+        dropout_rate=dropout_rate,
+        name=name,
+    )
+
+
+# ============================================================================
 # SMOKE TEST
 # ============================================================================
 if __name__ == "__main__":
