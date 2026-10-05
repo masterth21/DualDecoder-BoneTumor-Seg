@@ -143,7 +143,7 @@ def residual_refinement_block(x, filters, name_prefix="refine"):
 
 def apply_skip_attention(skip, gate, stage_idx, attn_type, prefix="reg"):
     """
-    Ap dung co che Attention tai Skip Connection:
+    Ap dung co che Attention tai Skip Connection (Cross-Attention: Q=gate, K/V=skip):
     - 'nalaformer' / 'nala': NaLaFormer Linear Attention (2026)
     - 'log_linear' / 'log': Log-Linear Attention (ICLR 2026)
     - 'multipole' / 'mutil': Multipole Attention (ICCV 2025)
@@ -151,20 +151,20 @@ def apply_skip_attention(skip, gate, stage_idx, attn_type, prefix="reg"):
     """
     attn_type = str(attn_type).lower()
     if attn_type in ["nalaformer", "nala"]:
-        from .nalaformer_attention import build_nalaformer_bottleneck
-        return build_nalaformer_bottleneck(
-            d_model=128, depth=1, num_heads=4, name=f"{prefix}_skip_nala{stage_idx}"
-        )(skip)
+        from .nalaformer_attention import build_nala_cross_attention
+        return build_nala_cross_attention(
+            d_model=128, num_heads=4, name=f"{prefix}_skip_nala{stage_idx}"
+        )([skip, gate])
     elif attn_type in ["log_linear", "log", "loglinear"]:
-        from .log_linear_attention import build_loglinear_bottleneck
-        return build_loglinear_bottleneck(
-            d_model=128, depth=1, num_heads=4, name=f"{prefix}_skip_log{stage_idx}"
-        )(skip)
+        from .log_linear_attention import build_loglinear_cross_attention
+        return build_loglinear_cross_attention(
+            d_model=128, num_heads=4, name=f"{prefix}_skip_log{stage_idx}"
+        )([skip, gate])
     elif attn_type in ["multipole", "mutil", "mano"]:
-        from .multipole_attention import build_multipole_bottleneck
-        return build_multipole_bottleneck(
-            d_model=128, depth=1, num_heads=4, name=f"{prefix}_skip_multi{stage_idx}"
-        )(skip)
+        from .multipole_attention import build_multipole_cross_attention
+        return build_multipole_cross_attention(
+            d_model=128, num_heads=4, name=f"{prefix}_skip_multi{stage_idx}"
+        )([skip, gate])
     else:
         return SkipAttentionGate(name=f"{prefix}_skip_att{stage_idx}")([skip, gate])
 

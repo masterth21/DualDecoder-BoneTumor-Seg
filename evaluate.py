@@ -56,7 +56,21 @@ def evaluate(cfg: DictConfig):
 
     print(f"✓ Loading model weights from: {checkpoint_path}")
     assert os.path.exists(checkpoint_path), f"Checkpoint does not exist at:\n{checkpoint_path}\nPlease train a model first!"
-    model.load_weights(checkpoint_path, by_name=True, skip_mismatch=True)
+
+    # Keras 3 warm-up pass: Chạy 1 batch tensor rỗng để toàn bộ sub-layers (như Dense trong Attention) được build biến
+    try:
+        dummy_shape = (1, cfg.INPUT.HEIGHT, cfg.INPUT.WIDTH, cfg.INPUT.CHANNELS)
+        _ = model(tf.zeros(dummy_shape, dtype=tf.float32), training=False)
+    except Exception as e:
+        print(f"[WARNING] Warm-up forward pass: {e}")
+
+    try:
+        if str(checkpoint_path).endswith(('.weights.h5', '.keras')):
+            model.load_weights(checkpoint_path)
+        else:
+            model.load_weights(checkpoint_path, by_name=True, skip_mismatch=True)
+    except (TypeError, ValueError):
+        model.load_weights(checkpoint_path)
 
     # 3. Data Generator
     val_generator = data_generator.get_data_generator(cfg, "VAL", strategy=None)
@@ -142,6 +156,21 @@ def evaluate(cfg: DictConfig):
     print("=" * 88 + "\n")
 
     # 7. Write to separate evaluation log file
+    skip_attn_type = getattr(cfg.MODEL, "SKIP_ATTENTION_TYPE", "None")
+    skip_attn_stages = getattr(cfg.MODEL, "SKIP_ATTENTION_STAGES", [])
+    if isinstance(skip_attn_stages, (list, tuple)):
+        skip_stages_str = f"Stages {list(skip_attn_stages)}"
+    else:
+        skip_stages_str = str(skip_attn_stages)
+    bottleneck_attn = getattr(cfg.MODEL, "BOTTLENECK_ATTENTION", "None")
+
+    if cfg.MODEL.TYPE == "dual_decoder_resnet":
+        attention_summary = f"Skip: {skip_attn_type} ({skip_stages_str}) | Bottleneck: {bottleneck_attn}"
+    elif cfg.MODEL.TYPE == "hybrid_transunet":
+        attention_summary = "Bottleneck: MultiHeadAttention (Transformer 8 heads)"
+    else:
+        attention_summary = "None (Standard CNN)"
+
     eval_log_dir = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH)
     os.makedirs(eval_log_dir, exist_ok=True)
     eval_csv_path = join_paths(eval_log_dir, "evaluation_detailed_logs.csv")
@@ -151,7 +180,9 @@ def evaluate(cfg: DictConfig):
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow([
-                "Timestamp", "Model_Type", "Backbone", "Weights_Path", "Val_Data_Path",
+                "Timestamp", "Model_Type", "Backbone", "Attention_Summary",
+                "Skip_Attention_Type", "Skip_Attention_Stages", "Bottleneck_Attention",
+                "Weights_Path", "Val_Data_Path",
                 "Dice_Overall", "Dice_Benign(Lanh)", "Dice_Malignant(Ac)",
                 "IoU_Overall", "IoU_Benign(Lanh)", "IoU_Malignant(Ac)",
                 "Precision_Overall", "Precision_Benign", "Precision_Malignant",
@@ -159,6 +190,7 @@ def evaluate(cfg: DictConfig):
             ])
         writer.writerow([
             eval_timestamp, cfg.MODEL.TYPE, getattr(cfg.MODEL.BACKBONE, 'TYPE', 'resnet34'),
+            attention_summary, skip_attn_type, skip_stages_str, bottleneck_attn,
             checkpoint_path, cfg.DATASET.VAL.IMAGES_PATH,
             f"{dice_avg:.4f}", f"{dice_b:.4f}", f"{dice_m:.4f}",
             f"{iou_avg:.4f}", f"{iou_b:.4f}", f"{iou_m:.4f}",

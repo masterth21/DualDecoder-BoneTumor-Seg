@@ -1,0 +1,73 @@
+
+======================================================================
+📊 KẾT QUẢ ĐÁNH GIÁ TỔNG THỂ TRÊN TẬP TEST (710 ẢNH)
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.5961 (59.61%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.7923 (79.23%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.6449 (64.49%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.8744 (87.44%)
+   - Global Dice U Ác   (Malignant)         : 0.9119 (91.19%)
+======================================================================
+======================================================================
+📌 MÔ HÌNH (MODEL): nalaformer_skip_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split_full/test_full/images | Mode: TEST (710 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-25 21:44:30
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.6548 (65.48%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.8107 (81.07%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.6946 (69.46%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.8995 (89.95%)
+   - Global Dice U Ác   (Malignant)         : 0.9176 (91.76%)
+======================================================================
+
+======================================================================
+📌 MÔ HÌNH (MODEL): loglinear_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split_full/test_full/images | Mode: TEST (710 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-27 17:45:00
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.5795 (57.95%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.7483 (74.83%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.6262 (62.62%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.8666 (86.66%)
+   - Global Dice U Ác   (Malignant)         : 0.9033 (90.33%)
+======================================================================
+
+======================================================================
+📌 MÔ HÌNH (MODEL): loglinear_skip_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split_full/test_full/images | Mode: TEST (710 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-28 08:09:11
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.6035 (60.35%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.8016 (80.16%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.6512 (65.12%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.8731 (87.31%)
+   - Global Dice U Ác   (Malignant)         : 0.9146 (91.46%)
+======================================================================
+
+======================================================================
+📌 MÔ HÌNH (MODEL): loglinear_full_transunet (Backbone: vgg19)
+📌 TẬP DỮ LIỆU (DATASET): U:/BTXRD/Split_full/test_full/images | Mode: TEST (710 ảnh)
+📌 THỜI GIAN ĐÁNH GIÁ: 2026-07-30 06:53:29
+======================================================================
+1. ĐÁNH GIÁ DỰA TRÊN TRUNG BÌNH TỪNG ẢNH (Per-Image Mean Dice):
+   - Mean Dice U Lành  (Benign - Class 1)   : 0.6114 (61.14%)
+   - Mean Dice U Ác    (Malignant - Class 2): 0.7598 (75.98%)
+   - Mean Dice Vùng U  (Overall Tumor)      : 0.6461 (64.61%)
+
+2. ĐÁNH GIÁ TỔNG TÍCH LŨY TOÀN BỘ TẬP DỮ LIỆU (Global Dataset Dice):
+   - Global Dice U Lành (Benign)            : 0.8872 (88.72%)
+   - Global Dice U Ác   (Malignant)         : 0.9067 (90.67%)
+======================================================================
+

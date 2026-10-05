@@ -21,6 +21,9 @@ DATASET:
   VAL:
     IMAGES_PATH: "./BTXRD/Split/val/images"
     MASK_PATH: "./BTXRD/Split/val/mask"
+  TEST:
+    IMAGES_PATH: "./BTXRD/Split/test/images"
+    MASK_PATH: "./BTXRD/Split/test/mask"
 
 # ============ CẤU HÌNH MÔ HÌNH ============
 MODEL:
@@ -116,31 +119,31 @@ PREPROCESS_DATA:
     # Các phép biến đổi hình học
     ROTATION:
       VALUE: True
-      ANGLE_RANGE: [-20, 20]  # độ
+      ANGLE_RANGE: [-10, 10]  # Giảm xuống 10 độ cho X-ray
     
     FLIP:
       VALUE: True
       HORIZONTAL: True
-      VERTICAL: True
+      VERTICAL: False # Không hợp lý với X-ray xương
     
     # Các phép biến đổi nâng cao cho ảnh y tế
     ELASTIC_DEFORMATION:
       VALUE: True
-      ALPHA: 30  # Cường độ biến dạng
-      SIGMA: 3   # Độ mịn
+      ALPHA: 15  # Giảm cường độ biến dạng (30 là quá mạnh)
+      SIGMA: 4   # Tăng độ mịn
 
     ZOOM:
       VALUE: True
-      RANGE: [0.8, 1.2]  # 80% đến 120% zoom
+      RANGE: [0.9, 1.1]  # Zoom nhẹ 90%-110%
 
     # Tăng cường cường độ
     BRIGHTNESS:
       VALUE: True
-      RANGE: [-0.2, 0.2]  # Điều chỉnh độ sáng
+      RANGE: [-0.08, 0.08]  # Giảm biên độ sáng
 
     CONTRAST:
       VALUE: True
-      RANGE: [0.8, 1.2]  # Điều chỉnh độ tương phản
+      RANGE: [0.9, 1.1]  # Giảm biên độ tương phản
 
     CLAHE:  # Cân bằng Histogram Thích ứng Giới hạn Tương phản
       VALUE: True
@@ -149,11 +152,11 @@ PREPROCESS_DATA:
 
     GAUSSIAN_NOISE:
       VALUE: True
-      STDDEV: 0.01  # Tiếng ồn nhỏ để tránh overfitting
+      STDDEV: 0.005  # Giảm noise để tránh hỏng features
 
     GAUSSIAN_BLUR:
       VALUE: True
-      SIGMA_RANGE: [0.5, 1.5]
+      SIGMA_RANGE: [0.5, 1.0]
 
 # ============ GPU & TỐI ƯU HÓA ============
 USE_MULTI_GPUS:

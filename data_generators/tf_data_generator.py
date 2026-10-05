@@ -76,20 +76,23 @@ class DataGenerator(tf.keras.utils.Sequence):
 
             # ================= DATA AUGMENTATION (CHỈ DÀNH CHO TẬP TRAIN) =================
             if self.mode == "TRAIN":
-                # Lật ngang 50%
+                # Lật ngang 50% (Hợp lý cho X-ray)
                 if np.random.rand() > 0.5:
                     image = tf.image.flip_left_right(image)
                     if self.mask_available:
                         mask = tf.image.flip_left_right(mask)
                 
-                # Lật dọc 50%
-                if np.random.rand() > 0.5:
-                    image = tf.image.flip_up_down(image)
-                    if self.mask_available:
-                        mask = tf.image.flip_up_down(mask)
-                
+                # BỎ Lật dọc (Vertical Flip không hợp lý cho ảnh y tế chụp X-quang)
+
                 # Biến thiên độ sáng nhẹ
-                image = tf.image.random_brightness(image, max_delta=0.05)
+                image = tf.image.random_brightness(image, max_delta=0.08)
+                
+                # Biến thiên tương phản nhẹ
+                image = tf.image.random_contrast(image, lower=0.9, upper=1.1)
+
+                # Thêm Gaussian noise cực nhẹ để tránh overfitting
+                noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=0.005, dtype=tf.float32)
+                image = tf.clip_by_value(image + noise, 0.0, 1.0)
             # ==============================================================================
 
             batch_images[i] = image
