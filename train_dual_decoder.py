@@ -230,9 +230,7 @@ def train_dual_decoder(cfg: DictConfig):
         validation_steps=validation_steps,
         epochs=cfg.HYPER_PARAMETERS.EPOCHS,
         callbacks=callbacks,
-        workers=cfg.DATALOADER_WORKERS,
-        max_queue_size=10,
-        use_multiprocessing=False,
+
         verbose=0,
     )
 
