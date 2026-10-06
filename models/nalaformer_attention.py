@@ -763,10 +763,13 @@ class NaLaCrossAttentionSkipGate(tf.keras.layers.Layer):
         shape_s = tf.shape(skip)
         B, H, W = shape_s[0], shape_s[1], shape_s[2]
         N = H * W
+        
+        C_skip = skip.shape[-1]
+        C_gate = gate.shape[-1]
 
         # Flatten spatial → sequence
-        skip_seq = tf.reshape(skip, [B, N, -1])
-        gate_seq = tf.reshape(gate, [B, N, -1])
+        skip_seq = tf.reshape(skip, [-1, N, C_skip])
+        gate_seq = tf.reshape(gate, [-1, N, C_gate])
         orig_dtype = skip_seq.dtype
 
         # Project to d_model
