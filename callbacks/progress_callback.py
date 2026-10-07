@@ -35,10 +35,22 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
         bar = "=" * filled + (">" if filled < bar_len else "") + "." * max(0, (bar_len - filled - 1 if filled < bar_len else 0))
 
         loss = logs.get('loss', 0.0)
+        reg_loss = logs.get('region_output_loss', 0.0)
+        bnd_loss = logs.get('boundary_output_loss', 0.0)
+        ref_loss = logs.get('refined_output_loss', 0.0)
+        
         refined_dice = logs.get('refined_output_dice_coef', 0.0)
+        dice_b = logs.get('refined_output_dice_benign', 0.0)
+        dice_m = logs.get('refined_output_dice_malignant', 0.0)
+        iou = logs.get('refined_output_iou', 0.0)
+        prec = logs.get('refined_output_precision', 0.0)
+        rec = logs.get('refined_output_recall', 0.0)
 
-        # Thanh tiến trình gọn ~75 ký tự, không bao giờ bị wrap trên terminal
-        msg = f"\rEpoch {self.current_epoch:03d}/{self.epochs} [{bar}] {step}/{self.total_steps} ({pct:2d}%) | ETA: {eta_str} | Loss: {loss:.4f} | Dice: {refined_dice:.4f}"
+        # Thanh tiến trình gọn, không bao giờ bị wrap trên terminal
+        msg = (f"\rEp {self.current_epoch:03d}/{self.epochs} [{bar}] {step}/{self.total_steps} | "
+               f"L:{loss:.3f}(R:{reg_loss:.2f}/B:{bnd_loss:.2f}/F:{ref_loss:.2f}) | "
+               f"D:{refined_dice:.3f}(B:{dice_b:.3f}/M:{dice_m:.3f}) | "
+               f"IoU:{iou:.3f} | P:{prec:.3f} | R:{rec:.3f}")
         sys.stdout.write(msg)
         sys.stdout.flush()
 
@@ -49,7 +61,20 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
 
         train_loss = logs.get('loss', 0.0)
         val_loss = logs.get('val_loss', 0.0)
+        t_reg = logs.get('region_output_loss', 0.0)
+        t_bnd = logs.get('boundary_output_loss', 0.0)
+        t_ref = logs.get('refined_output_loss', 0.0)
+        v_reg = logs.get('val_region_output_loss', 0.0)
+        v_bnd = logs.get('val_boundary_output_loss', 0.0)
+        v_ref = logs.get('val_refined_output_loss', 0.0)
+
         train_dice = logs.get('refined_output_dice_coef', 0.0)
+        train_dice_b = logs.get('refined_output_dice_benign', 0.0)
+        train_dice_m = logs.get('refined_output_dice_malignant', 0.0)
+        train_iou = logs.get('refined_output_iou', 0.0)
+        train_prec = logs.get('refined_output_precision', 0.0)
+        train_rec = logs.get('refined_output_recall', 0.0)
+
         val_dice = logs.get('val_refined_output_dice_coef', 0.0)
         val_dice_b = logs.get('val_refined_output_dice_benign', 0.0)
         val_dice_m = logs.get('val_refined_output_dice_malignant', 0.0)
@@ -57,27 +82,17 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
         val_prec = logs.get('val_refined_output_precision', 0.0)
         val_rec = logs.get('val_refined_output_recall', 0.0)
 
-        # Xóa dòng progress và in ĐÚNG 1 DÒNG kết quả chốt của Epoch
-        sys.stdout.write("\r" + " " * 140 + "\r")
-        if val_iou > 0 or val_prec > 0 or val_dice_b > 0 or val_dice_m > 0:
-            summary = (
-                f"[Epoch {epoch + 1:03d}/{self.epochs:03d}] "
-                f"Loss: {train_loss:.4f} | "
-                f"Val Loss: {val_loss:.4f} | "
-                f"Dice: {val_dice:.4f} (Lành: {val_dice_b:.4f}, Ác: {val_dice_m:.4f}) | "
-                f"IoU: {val_iou:.4f} | "
-                f"Prec: {val_prec:.4f} | "
-                f"Rec: {val_rec:.4f} | "
-                f"Time: {time_str}"
-            )
-        else:
-            summary = (
-                f"[Epoch {epoch + 1:03d}/{self.epochs:03d}] "
-                f"Loss: {train_loss:.4f} | "
-                f"Val Loss: {val_loss:.4f} | "
-                f"Train Dice: {train_dice:.4f} | "
-                f"Val Dice: {val_dice:.4f} | "
-                f"Time: {time_str}"
-            )
+        sys.stdout.write("\r" + " " * 160 + "\r")
+        summary = (
+            f"[Epoch {epoch + 1:03d}/{self.epochs:03d}] "
+            f"Loss(Train/Val): {train_loss:.3f}/{val_loss:.3f} "
+            f"| Dice(T/V): {train_dice:.3f}/{val_dice:.3f} "
+            f"| DiceB(T/V): {train_dice_b:.3f}/{val_dice_b:.3f} "
+            f"| DiceM(T/V): {train_dice_m:.3f}/{val_dice_m:.3f} "
+            f"| IoU(T/V): {train_iou:.3f}/{val_iou:.3f} "
+            f"| Prec(T/V): {train_prec:.3f}/{val_prec:.3f} "
+            f"| Rec(T/V): {train_rec:.3f}/{val_rec:.3f} "
+            f"| Time: {time_str}"
+        )
         print(summary)
         sys.stdout.flush()

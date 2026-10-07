@@ -20,153 +20,31 @@ from omegaconf import DictConfig
 # =============================================================================
 # SKIP CONNECTION ATTENTION GATE
 # =============================================================================
-class SkipAttentionGate(tf.keras.layers.Layer):
+# Sử dụng ContextAttentionGate từ models.attention_gates thay thế các gate cũ.
+
+def apply_skip_attention(skip, gate, stage_idx, branch_cfg, prefix="reg"):
     """
-    Attention Gate cho Skip Connection.
-
-    Lọc đặc trưng từ encoder (skip) dựa trên tín hiệu từ decoder (gating signal),
-    giúp decoder chỉ nhận thông tin liên quan từ encoder, loại bỏ nhiễu nền.
-
-    Cơ chế:
-        α = σ(W_ψ(ψ) + W_g(g) + b)     (Channel-wise attention)
-        skip_out = skip × α
-
-    Trong đó:
-        - skip: feature map từ encoder (E_i)
-        - g:    gating signal từ decoder (tầng bên dưới, đã upsample)
-
-    Tham khảo: "Attention U-Net: Learning Where to Look for the Pancreas"
-                (Oktay et al., 2018, arXiv:1804.03999)
+    Áp dụng Attention Gate tại Skip Connection.
+    - skip: feature map từ encoder
+    - gate: feature map từ decoder (sau upsample)
+    - branch_cfg: dictionary config cho nhánh (chứa TYPE và STAGES)
     """
+    stages = list(branch_cfg.get("STAGES", []))
+    if stage_idx not in stages:
+        return skip
 
-    def __init__(self, inter_channels=None, **kwargs):
-        """
-        Args:
-            inter_channels: Số kênh trung gian cho bottleneck projection.
-                            Nếu None, tự động = skip_channels // 2.
-        """
-        super().__init__(**kwargs)
-        self.inter_channels = inter_channels
+    attn_type = str(branch_cfg.get("TYPE", "none")).lower()
+    name = f"{prefix}_skipgate{stage_idx}"
 
-    def build(self, input_shape):
-        # input_shape là list [skip_shape, gate_shape]
-        skip_shape, gate_shape = input_shape
-        skip_c = skip_shape[-1]
-        gate_c = gate_shape[-1]
-        inter_c = self.inter_channels or max(skip_c // 2, 1)
-
-        # Projection cho skip signal
-        self.W_skip = layers.Conv2D(
-            inter_c, (1, 1), strides=(1, 1), padding='same',
-            use_bias=True, name=f"{self.name}_W_skip"
-        )
-
-        # Projection cho gating signal
-        self.W_gate = layers.Conv2D(
-            inter_c, (1, 1), strides=(1, 1), padding='same',
-            use_bias=True, name=f"{self.name}_W_gate"
-        )
-
-        # Attention coefficient projection
-        self.psi = layers.Conv2D(
-            1, (1, 1), strides=(1, 1), padding='same',
-            use_bias=True, name=f"{self.name}_psi"
-        )
-
-        self.bn = layers.BatchNormalization(name=f"{self.name}_bn")
-
-        super().build(input_shape)
-
-    def call(self, inputs, training=None):
-        """
-        Args:
-            inputs: list of [skip_feature, gating_signal]
-                skip_feature:   (B, H, W, C_skip)  — từ encoder
-                gating_signal:  (B, H, W, C_gate)  — từ decoder (đã upsample về cùng H, W)
-        Returns:
-            attended_skip: (B, H, W, C_skip) — skip feature đã được lọc bởi attention
-        """
-        skip, gate = inputs
-
-        # Additive attention
-        x_skip = self.W_skip(skip)          # (B, H, W, inter_c)
-        x_gate = self.W_gate(gate)          # (B, H, W, inter_c)
-
-        # Cộng + ReLU
-        combined = layers.Activation('relu')(x_skip + x_gate)
-
-        # Attention map α ∈ [0, 1]
-        alpha = self.psi(combined)           # (B, H, W, 1)
-        alpha = layers.Activation('sigmoid')(alpha)
-
-        # Lọc skip bằng attention
-        attended = skip * alpha              # (B, H, W, C_skip)
-        attended = self.bn(attended, training=training)
-        return attended
-
-    def get_config(self):
-        config = super().get_config()
-        config.update({"inter_channels": self.inter_channels})
-        return config
-
-
-# =============================================================================
-# COMMON BLOCKS
-# =============================================================================
-def conv_block(x, filters, name_prefix="conv"):
-    """Standard Conv-BN-ReLU Block"""
-    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv1")(x)
-    x = layers.BatchNormalization(name=f"{name_prefix}_bn1")(x)
-    x = layers.Activation('relu', name=f"{name_prefix}_relu1")(x)
-
-    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv2")(x)
-    x = layers.BatchNormalization(name=f"{name_prefix}_bn2")(x)
-    x = layers.Activation('relu', name=f"{name_prefix}_relu2")(x)
-    return x
-
-
-def residual_refinement_block(x, filters, name_prefix="refine"):
-    """Residual Refinement Block for fine-tuning boundaries and regions"""
-    res = layers.Conv2D(filters, (1, 1), padding='same', name=f"{name_prefix}_res_proj")(x)
-
-    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv1")(x)
-    x = layers.BatchNormalization(name=f"{name_prefix}_bn1")(x)
-    x = layers.Activation('relu', name=f"{name_prefix}_relu1")(x)
-
-    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv2")(x)
-    x = layers.BatchNormalization(name=f"{name_prefix}_bn2")(x)
-
-    x = layers.Add(name=f"{name_prefix}_add")([res, x])
-    x = layers.Activation('relu', name=f"{name_prefix}_out")(x)
-    return x
-
-
-def apply_skip_attention(skip, gate, stage_idx, attn_type, prefix="reg"):
-    """
-    Ap dung co che Attention tai Skip Connection (Cross-Attention: Q=gate, K/V=skip):
-    - 'nalaformer' / 'nala': NaLaFormer Linear Attention (2026)
-    - 'log_linear' / 'log': Log-Linear Attention (ICLR 2026)
-    - 'multipole' / 'mutil': Multipole Attention (ICCV 2025)
-    - 'oktay' / 'gate': Additive Gated Attention (Oktay et al., 2018)
-    """
-    attn_type = str(attn_type).lower()
-    if attn_type in ["nalaformer", "nala"]:
-        from .nalaformer_attention import build_nala_cross_attention
-        return build_nala_cross_attention(
-            d_model=128, num_heads=4, name=f"{prefix}_skip_nala{stage_idx}"
-        )([skip, gate])
-    elif attn_type in ["log_linear", "log", "loglinear"]:
-        from .log_linear_attention import build_loglinear_cross_attention
-        return build_loglinear_cross_attention(
-            d_model=128, num_heads=4, name=f"{prefix}_skip_log{stage_idx}"
-        )([skip, gate])
-    elif attn_type in ["multipole", "mutil", "mano"]:
-        from .multipole_attention import build_multipole_cross_attention
-        return build_multipole_cross_attention(
-            d_model=128, num_heads=4, name=f"{prefix}_skip_multi{stage_idx}"
-        )([skip, gate])
+    if attn_type == "oktay":
+        context_type = "none"
+    elif attn_type in ["nalaformer", "log_linear", "multipole"]:
+        context_type = attn_type
     else:
-        return SkipAttentionGate(name=f"{prefix}_skip_att{stage_idx}")([skip, gate])
+        context_type = "none"
+
+    from models.attention_gates import ContextAttentionGate
+    return ContextAttentionGate(context_type=context_type, name=name)([skip, gate])
 
 
 # =============================================================================
@@ -231,46 +109,54 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     # =========================================================================
     # HOOK POINT 2: ATTENTION MODULE AT SKIP CONNECTIONS (STAGES 3 & 4)
     # =========================================================================
-    skip_stages = list(getattr(cfg.MODEL, "SKIP_ATTENTION_STAGES", [3, 4]))
-    skip_attn_type = str(getattr(cfg.MODEL, "SKIP_ATTENTION_TYPE", "nalaformer")).lower()
-    print(f"[INFO] Skip Attention Module: '{skip_attn_type}' active at stage(s): {skip_stages}")
+    skip_cfg = getattr(cfg.MODEL, "SKIP_ATTENTION", None)
+    
+    if skip_cfg is None:
+        old_type = str(getattr(cfg.MODEL, "SKIP_ATTENTION_TYPE", "oktay")).lower()
+        old_stages = list(getattr(cfg.MODEL, "SKIP_ATTENTION_STAGES", [3, 4]))
+        print(f"[WARNING] Cấu hình SKIP_ATTENTION cũ, dùng chung cho cả 2 nhánh. Type: {old_type}")
+        region_skip_cfg = {"TYPE": old_type, "STAGES": old_stages}
+        bound_skip_cfg = {"TYPE": old_type, "STAGES": old_stages}
+    else:
+        # Nếu dùng DictConfig, convert về dict hoặc dùng kiểu getattr
+        def _get_dict(node):
+            if hasattr(node, "keys"):
+                return {k: node[k] for k in node.keys()}
+            return node
+        
+        region_cfg_raw = getattr(skip_cfg, "REGION", {"TYPE": "none", "STAGES": []})
+        bound_cfg_raw = getattr(skip_cfg, "BOUNDARY", {"TYPE": "none", "STAGES": []})
+        
+        region_skip_cfg = _get_dict(region_cfg_raw)
+        bound_skip_cfg = _get_dict(bound_cfg_raw)
+
+    print(f"[INFO] Skip REGION:   {region_skip_cfg.get('TYPE')}-gate @ {region_skip_cfg.get('STAGES')}")
+    print(f"[INFO] Skip BOUNDARY: {bound_skip_cfg.get('TYPE')}-gate @ {bound_skip_cfg.get('STAGES')}")
 
     # =========================================================================
     # 2. REGION DECODER BRANCH
     # =========================================================================
     # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
     r4_up = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding='same', name="reg_up4")(bottleneck)
-    if 4 in skip_stages:
-        e4_att = apply_skip_attention(e4, r4_up, 4, skip_attn_type, prefix="reg")
-    else:
-        e4_att = e4
+    e4_att = apply_skip_attention(e4, r4_up, 4, region_skip_cfg, prefix="reg")
     r4 = layers.Concatenate(name="reg_concat4")([r4_up, e4_att])
     r4 = conv_block(r4, 512, name_prefix="reg_block4")
 
     # --- Tầng 3: 24x24 -> 48x48, skip = e3 ---
     r3_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="reg_up3")(r4)
-    if 3 in skip_stages:
-        e3_att = apply_skip_attention(e3, r3_up, 3, skip_attn_type, prefix="reg")
-    else:
-        e3_att = e3
+    e3_att = apply_skip_attention(e3, r3_up, 3, region_skip_cfg, prefix="reg")
     r3 = layers.Concatenate(name="reg_concat3")([r3_up, e3_att])
     r3 = conv_block(r3, 256, name_prefix="reg_block3")
 
     # --- Tầng 2: 48x48 -> 96x96, skip = e2 ---
     r2_up = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same', name="reg_up2")(r3)
-    if 2 in skip_stages:
-        e2_att = apply_skip_attention(e2, r2_up, 2, skip_attn_type, prefix="reg")
-    else:
-        e2_att = e2
+    e2_att = apply_skip_attention(e2, r2_up, 2, region_skip_cfg, prefix="reg")
     r2 = layers.Concatenate(name="reg_concat2")([r2_up, e2_att])
     r2 = conv_block(r2, 128, name_prefix="reg_block2")
 
     # --- Tầng 1: 96x96 -> 192x192, skip = e1 ---
     r1_up = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same', name="reg_up1")(r2)
-    if 1 in skip_stages:
-        e1_att = apply_skip_attention(e1, r1_up, 1, skip_attn_type, prefix="reg")
-    else:
-        e1_att = e1
+    e1_att = apply_skip_attention(e1, r1_up, 1, region_skip_cfg, prefix="reg")
     r1 = layers.Concatenate(name="reg_concat1")([r1_up, e1_att])
     f_region = conv_block(r1, 64, name_prefix="f_region_block")
 
@@ -286,37 +172,25 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     # =========================================================================
     # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
     b4_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="bound_up4")(bottleneck)
-    if 4 in skip_stages:
-        e4_att_b = apply_skip_attention(e4, b4_up, 4, skip_attn_type, prefix="bound")
-    else:
-        e4_att_b = e4
+    e4_att_b = apply_skip_attention(e4, b4_up, 4, bound_skip_cfg, prefix="bound")
     b4 = layers.Concatenate(name="bound_concat4")([b4_up, e4_att_b])
     b4 = conv_block(b4, 256, name_prefix="bound_block4")
 
     # --- Tầng 3: 24x24 -> 48x48, skip = e3 ---
     b3_up = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same', name="bound_up3")(b4)
-    if 3 in skip_stages:
-        e3_att_b = apply_skip_attention(e3, b3_up, 3, skip_attn_type, prefix="bound")
-    else:
-        e3_att_b = e3
+    e3_att_b = apply_skip_attention(e3, b3_up, 3, bound_skip_cfg, prefix="bound")
     b3 = layers.Concatenate(name="bound_concat3")([b3_up, e3_att_b])
     b3 = conv_block(b3, 128, name_prefix="bound_block3")
 
     # --- Tầng 2: 48x48 -> 96x96, skip = e2 ---
     b2_up = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same', name="bound_up2")(b3)
-    if 2 in skip_stages:
-        e2_att_b = apply_skip_attention(e2, b2_up, 2, skip_attn_type, prefix="bound")
-    else:
-        e2_att_b = e2
+    e2_att_b = apply_skip_attention(e2, b2_up, 2, bound_skip_cfg, prefix="bound")
     b2 = layers.Concatenate(name="bound_concat2")([b2_up, e2_att_b])
     b2 = conv_block(b2, 64, name_prefix="bound_block2")
 
     # --- Tầng 1: 96x96 -> 192x192, skip = e1 ---
     b1_up = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_up1")(b2)
-    if 1 in skip_stages:
-        e1_att_b = apply_skip_attention(e1, b1_up, 1, skip_attn_type, prefix="bound")
-    else:
-        e1_att_b = e1
+    e1_att_b = apply_skip_attention(e1, b1_up, 1, bound_skip_cfg, prefix="bound")
     b1 = layers.Concatenate(name="bound_concat1")([b1_up, e1_att_b])
     f_boundary = conv_block(b1, 32, name_prefix="f_boundary_block")
 
@@ -363,3 +237,17 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     )
 
     return model
+
+def get_gate_maps_model(model):
+    """
+    Tạo model trích xuất tất cả các attention maps (hệ số alpha) từ ContextAttentionGate.
+    """
+    gate_outputs = []
+    for layer in model.layers:
+        if layer.name.endswith("_alpha"):
+            gate_outputs.append(layer.output)
+    
+    if not gate_outputs:
+        print("[WARNING] No ContextAttentionGate found in the model.")
+        
+    return models.Model(inputs=model.input, outputs=gate_outputs, name="AttentionGateMaps_Extractor")

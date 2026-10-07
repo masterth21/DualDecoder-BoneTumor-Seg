@@ -608,15 +608,12 @@ class NaLaFormerBottleneck(tf.keras.layers.Layer):
     def build(self, input_shape):
         C = input_shape[-1]
 
-        # Projection nếu channel ≠ d_model
-        self.need_proj = (C != self.d_model)
-        if self.need_proj:
-            self.proj_in = tf.keras.layers.Dense(
-                self.d_model, use_bias=False, name=f"{self.name}_proj_in"
-            )
-            self.proj_out = tf.keras.layers.Dense(
-                C, use_bias=False, name=f"{self.name}_proj_out"
-            )
+        self.proj_in = tf.keras.layers.Dense(
+            self.d_model, use_bias=False, name=f"{self.name}_proj_in"
+        )
+        self.proj_out = tf.keras.layers.Dense(
+            C, use_bias=False, kernel_initializer='zeros', name=f"{self.name}_proj_out"
+        )
 
         self.encoder = NaLaFormerEncoder(
             d_model=self.d_model,
@@ -632,20 +629,24 @@ class NaLaFormerBottleneck(tf.keras.layers.Layer):
         shape = tf.shape(x)
         B, H, W, C = shape[0], shape[1], shape[2], shape[3]
 
+        from models.attention_gates import get_2d_positional_encoding
+        pe = get_2d_positional_encoding(B, H, W, self.d_model)
+        pe = tf.reshape(pe, [B, H * W, self.d_model])
+
         # Flatten spatial → sequence
-        x = tf.reshape(x, [B, H * W, C])            # (B, N, C)
+        x_flat = tf.reshape(x, [B, H * W, C])            # (B, N, C)
 
-        if self.need_proj:
-            x = self.proj_in(x)                       # (B, N, d_model)
+        h = self.proj_in(x_flat)                       # (B, N, d_model)
+        h = h + pe                                     # Add Positional Encoding
+        h = self.encoder(h, training=training)         # (B, N, d_model)
+        h = self.proj_out(h)                           # (B, N, C)
 
-        x = self.encoder(x, training=training)        # (B, N, d_model)
-
-        if self.need_proj:
-            x = self.proj_out(x)                      # (B, N, C)
+        # Outer Residual
+        out = x_flat + h
 
         # Reshape lại spatial
-        x = tf.reshape(x, [B, H, W, C])              # (B, H, W, C)
-        return x
+        out = tf.reshape(out, [B, H, W, C])              # (B, H, W, C)
+        return out
 
     def get_config(self):
         config = super().get_config()

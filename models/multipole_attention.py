@@ -287,17 +287,14 @@ class MultipoleBottleneck(tf.keras.layers.Layer):
     def build(self, input_shape):
         C = input_shape[-1]
 
-        # Projection nếu channel ≠ d_model
-        self.need_proj = (C != self.d_model)
-        if self.need_proj:
-            self.proj_in = tf.keras.layers.Dense(
-                self.d_model, use_bias=False
-            )
-            self.proj_in.build((None, C))
-            self.proj_out = tf.keras.layers.Dense(
-                C, use_bias=False
-            )
-            self.proj_out.build((None, self.d_model))
+        self.proj_in = tf.keras.layers.Dense(
+            self.d_model, use_bias=False
+        )
+        self.proj_in.build((None, C))
+        self.proj_out = tf.keras.layers.Dense(
+            C, use_bias=False, kernel_initializer='zeros'
+        )
+        self.proj_out.build((None, self.d_model))
 
         self.encoder = MultipoleEncoder(
             d_model=self.d_model,
@@ -312,23 +309,29 @@ class MultipoleBottleneck(tf.keras.layers.Layer):
         shape = tf.shape(x)
         B, H, W, C = shape[0], shape[1], shape[2], shape[3]
 
+        from models.attention_gates import get_2d_positional_encoding
+        pe = get_2d_positional_encoding(B, H, W, self.d_model)
+        pe = tf.reshape(pe, [B, H * W, self.d_model])
+
         # 1. Flatten spatial -> sequence (B, N, C)
-        x = tf.reshape(x, [B, H * W, C])
+        x_flat = tf.reshape(x, [B, H * W, C])
 
         # 2. Project in
-        if self.need_proj:
-            x = self.proj_in(x)
+        h = self.proj_in(x_flat)
+        h = h + pe
 
         # 3. Multipole Encoder
-        x = self.encoder(x, training=training)
+        h = self.encoder(h, training=training)
 
         # 4. Project out
-        if self.need_proj:
-            x = self.proj_out(x)
+        h = self.proj_out(h)
+
+        # Outer Residual
+        out = x_flat + h
 
         # 5. Reshape lại spatial 4D (B, H, W, C)
-        x = tf.reshape(x, [B, H, W, C])
-        return x
+        out = tf.reshape(out, [B, H, W, C])
+        return out
 
     def compute_output_shape(self, input_shape):
         return input_shape
