@@ -22,6 +22,28 @@ from omegaconf import DictConfig
 # =============================================================================
 # Sử dụng ContextAttentionGate từ models.attention_gates thay thế các gate cũ.
 
+def conv_block(x, filters, name_prefix="conv"):
+    """Standard Conv-BN-ReLU Block"""
+    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv1")(x)
+    x = layers.BatchNormalization(name=f"{name_prefix}_bn1")(x)
+    x = layers.Activation('relu', name=f"{name_prefix}_relu1")(x)
+    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv2")(x)
+    x = layers.BatchNormalization(name=f"{name_prefix}_bn2")(x)
+    x = layers.Activation('relu', name=f"{name_prefix}_relu2")(x)
+    return x
+
+def residual_refinement_block(x, filters, name_prefix="refine"):
+    """Residual Refinement Block for fine-tuning boundaries and regions"""
+    res = layers.Conv2D(filters, (1, 1), padding='same', name=f"{name_prefix}_res_proj")(x)
+    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv1")(x)
+    x = layers.BatchNormalization(name=f"{name_prefix}_bn1")(x)
+    x = layers.Activation('relu', name=f"{name_prefix}_relu1")(x)
+    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv2")(x)
+    x = layers.BatchNormalization(name=f"{name_prefix}_bn2")(x)
+    x = layers.Add(name=f"{name_prefix}_add")([res, x])
+    x = layers.Activation('relu', name=f"{name_prefix}_out")(x)
+    return x
+
 def apply_skip_attention(skip, gate, stage_idx, branch_cfg, prefix="reg"):
     """
     Áp dụng Attention Gate tại Skip Connection.
@@ -36,15 +58,18 @@ def apply_skip_attention(skip, gate, stage_idx, branch_cfg, prefix="reg"):
     attn_type = str(branch_cfg.get("TYPE", "none")).lower()
     name = f"{prefix}_skipgate{stage_idx}"
 
-    if attn_type == "oktay":
+    if attn_type in ["none", "", "null"]:
+        return skip
+    elif attn_type in ["oktay", "gate"]:
         context_type = "none"
     elif attn_type in ["nalaformer", "log_linear", "multipole"]:
         context_type = attn_type
     else:
-        context_type = "none"
+        raise ValueError(f"SKIP_ATTENTION TYPE không hợp lệ: '{attn_type}'")
 
     from models.attention_gates import ContextAttentionGate
-    return ContextAttentionGate(context_type=context_type, name=name)([skip, gate])
+    out, _alpha = ContextAttentionGate(context_type=context_type, name=name)([skip, gate])
+    return out
 
 
 # =============================================================================
@@ -242,10 +267,11 @@ def get_gate_maps_model(model):
     """
     Tạo model trích xuất tất cả các attention maps (hệ số alpha) từ ContextAttentionGate.
     """
+    from models.attention_gates import ContextAttentionGate
     gate_outputs = []
     for layer in model.layers:
-        if layer.name.endswith("_alpha"):
-            gate_outputs.append(layer.output)
+        if isinstance(layer, ContextAttentionGate):
+            gate_outputs.append(layer.output[1])
     
     if not gate_outputs:
         print("[WARNING] No ContextAttentionGate found in the model.")

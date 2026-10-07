@@ -318,7 +318,7 @@ class MultipoleBottleneck(tf.keras.layers.Layer):
 
         # 2. Project in
         h = self.proj_in(x_flat)
-        h = h + pe
+        h = h + tf.cast(pe, h.dtype)
 
         # 3. Multipole Encoder
         h = self.encoder(h, training=training)

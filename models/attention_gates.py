@@ -49,21 +49,21 @@ class ContextAttentionGate(tf.keras.layers.Layer):
         self.inter_c = self.inter_channels or max(C_skip // 2, 16)
 
         # Gate Mechanism Projections
-        self.conv_skip = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_skip")
-        self.conv_gate = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=True, name="conv_gate")
+        self.conv_skip = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_skip", dtype="float32")
+        self.conv_gate = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=True, name="conv_gate", dtype="float32")
         
         if self.context_type != "none":
-            self.conv_ctx = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_ctx")
+            self.conv_ctx = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_ctx", dtype="float32")
             
             # Cross-attention params
             self.head_dim = self.d_ctx // self.num_heads
-            self.q_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="q_proj")
-            self.k_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="k_proj")
-            self.v_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="v_proj")
+            self.q_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="q_proj", dtype="float32")
+            self.k_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="k_proj", dtype="float32")
+            self.v_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="v_proj", dtype="float32")
             
             if self.context_type == "nalaformer":
-                self.phi_q_heads = [QueryFeatureMap(name=f"phi_q_h{i}") for i in range(self.num_heads)]
-                self.phi_k_heads = [KeyFeatureMap(name=f"phi_k_h{i}") for i in range(self.num_heads)]
+                self.phi_q_heads = [QueryFeatureMap(name=f"phi_q_h{i}", dtype="float32") for i in range(self.num_heads)]
+                self.phi_k_heads = [KeyFeatureMap(name=f"phi_k_h{i}", dtype="float32") for i in range(self.num_heads)]
             elif self.context_type in ["log_linear", "multipole"]:
                 self.scale_weight = self.add_weight(
                     name=f"{self.context_type}_scale",
@@ -72,7 +72,7 @@ class ContextAttentionGate(tf.keras.layers.Layer):
                     trainable=True
                 )
         
-        self.gate_bn = tf.keras.layers.BatchNormalization(name="gate_bn")
+        self.gate_bn = tf.keras.layers.BatchNormalization(name="gate_bn", dtype="float32")
         
         alpha_channels = C_skip if self.per_channel else 1
         # Initialize bias to 2.0 so alpha is ~0.88 initially
@@ -83,7 +83,8 @@ class ContextAttentionGate(tf.keras.layers.Layer):
             kernel_initializer=kernel_init,
             bias_initializer=bias_init,
             activation="sigmoid", 
-            name=f"{self.name}_alpha"
+            name=f"{self.name}_alpha",
+            dtype="float32"
         )
         super().build(input_shape)
 
@@ -169,7 +170,7 @@ class ContextAttentionGate(tf.keras.layers.Layer):
         
         # Attention Gate Output
         out = skip_f32 * alpha
-        return tf.cast(out, orig_dtype)
+        return (tf.cast(out, orig_dtype), alpha)
 
     def get_config(self):
         config = super().get_config()

@@ -637,7 +637,7 @@ class NaLaFormerBottleneck(tf.keras.layers.Layer):
         x_flat = tf.reshape(x, [B, H * W, C])            # (B, N, C)
 
         h = self.proj_in(x_flat)                       # (B, N, d_model)
-        h = h + pe                                     # Add Positional Encoding
+        h = h + tf.cast(pe, h.dtype)                                     # Add Positional Encoding
         h = self.encoder(h, training=training)         # (B, N, d_model)
         h = self.proj_out(h)                           # (B, N, C)
 
