@@ -229,19 +229,12 @@ def main(cfg: DictConfig):
         img_input = np.expand_dims(original / 255.0, axis=0)
         preds = model.predict(img_input, verbose=0)
 
-        # Trích xuất output chính xác cho Dual Decoder
-        boundary_pred = None
-        if isinstance(preds, (list, tuple)):
-            if cfg.MODEL.TYPE == "dual_decoder_resnet":
-                pred = preds[2]  # Output cuối cùng được tinh chỉnh bởi NaLaFormer (refined_output)
-                # preds[1] là boundary_output từ nhánh Boundary Decoder
-                boundary_pred_raw = preds[1]
-            else:
-                pred = preds[0]
-                boundary_pred_raw = None
-        else:
-            pred = preds
-            boundary_pred_raw = None
+        # Trích xuất output chính xác dựa vào model.output_names
+        if not isinstance(preds, (list, tuple)):
+            preds = [preds]
+        out_dict = dict(zip(model.output_names, preds))
+        pred = out_dict["refined_output"]
+        boundary_pred_raw = out_dict.get("boundary_output")
 
         pred_class = np.argmax(pred[0], axis=-1).astype(np.uint8)
 
@@ -491,16 +484,24 @@ def main(cfg: DictConfig):
         writer.writerows(per_image_records)
 
     # 2. Trích xuất thông tin cấu hình Attention và mô hình
-    skip_attn_type = getattr(cfg.MODEL, "SKIP_ATTENTION_TYPE", "None")
-    skip_attn_stages = getattr(cfg.MODEL, "SKIP_ATTENTION_STAGES", [])
-    if isinstance(skip_attn_stages, (list, tuple)):
-        skip_stages_str = f"Stages {list(skip_attn_stages)}"
+    dual_decoder = getattr(cfg.MODEL, "DUAL_DECODER", True)
+    decoder_cfg = getattr(cfg.MODEL, "DECODER", {})
+    decoder_type = str(decoder_cfg.get("TYPE", "unet")).lower()
+    
+    skip_cfg = getattr(cfg.MODEL, "SKIP_ATTENTION", None)
+    if skip_cfg:
+        region_cfg = getattr(skip_cfg, "REGION", {})
+        bound_cfg = getattr(skip_cfg, "BOUNDARY", {})
+        region_type = region_cfg.get("TYPE", "none") if hasattr(region_cfg, "get") else getattr(region_cfg, "TYPE", "none")
+        bound_type = bound_cfg.get("TYPE", "none") if hasattr(bound_cfg, "get") else getattr(bound_cfg, "TYPE", "none")
+        skip_summary = f"Reg:{region_type}|Bnd:{bound_type}"
     else:
-        skip_stages_str = str(skip_attn_stages)
+        skip_summary = str(getattr(cfg.MODEL, "SKIP_ATTENTION_TYPE", "None"))
+        
     bottleneck_attn = getattr(cfg.MODEL, "BOTTLENECK_ATTENTION", "None")
 
     if cfg.MODEL.TYPE == "dual_decoder_resnet":
-        attention_summary = f"Skip: {skip_attn_type} ({skip_stages_str}) | Bottleneck: {bottleneck_attn}"
+        attention_summary = f"Skip: {skip_summary} | Bot: {bottleneck_attn} | Dec: {decoder_type} | Dual: {dual_decoder}"
     elif cfg.MODEL.TYPE == "hybrid_transunet":
         attention_summary = "Bottleneck: MultiHeadAttention (Transformer 8 heads)"
     else:
@@ -521,8 +522,8 @@ def main(cfg: DictConfig):
         cfg.MODEL.TYPE,
         getattr(cfg.MODEL.BACKBONE, 'TYPE', 'None'),
         attention_summary,
-        skip_attn_type,
-        skip_stages_str,
+        skip_summary,
+        "",
         bottleneck_attn,
         os.path.basename(checkpoint_path),
         f"{g_micro_dice:.4f}",
