@@ -91,37 +91,43 @@ def unet3plus_backbone(input_layer, filters):
 
 #     return [e1, e2, e3, e4, e5]
 
-def resnet34_backbone(input_layer):
-    """ ResNet34 backbone as encoder cho UNet3P (Sử dụng thư viện lõi classification_models) """
+def resnet34_backbone(input_layer, weights="imagenet"):
+    """ ResNet34 backbone as encoder for UNet3P (Sử dụng thư viện lõi classification_models) """
     from classification_models.tfkeras import Classifiers
     import tensorflow as tf
+    import os
 
     # 1. Lấy kiến trúc ResNet34 chuẩn từ thư viện lõi
     ResNet34, _ = Classifiers.get('resnet34')
 
-    # 2. Khởi tạo base_model, TẮT tải tự động ImageNet
-    base_model = ResNet34(input_tensor=input_layer, weights=None, include_top=False)
+    valid_weights = {"imagenet", "mura", "none"}
+    if weights not in valid_weights:
+        raise ValueError(f"weights must be one of {valid_weights}")
 
-    # ==============================================================
-    # BƯỚC CẤY GHÉP: Nạp trọng số chuyên gia MURA (Transfer Learning)
-    # ==============================================================
-    import os
-    mura_weights_path = 'mura_resnet34_best_weights.h5' if os.path.exists('mura_resnet34_best_weights.h5') else '/workspace/unet3p/mura_resnet34_best_weights.h5'
-    if os.path.exists(mura_weights_path):
-        try:
-            base_model.load_weights(mura_weights_path, by_name=True, skip_mismatch=True)
-            print("[INFO] Da tai thanh cong trong so chuyen gia MURA vao BACKBONE RESNET34!")
-        except Exception as e:
-            print(f"[WARNING] Khong the tai trong so MURA: {e}")
+    # 2. Khởi tạo base_model
+    if weights == "imagenet":
+        base_model = ResNet34(input_shape=input_layer.shape[1:], weights='imagenet', include_top=False)
+        print("[INFO] ResNet34: ImageNet pretrained")
     else:
-        print(f"[INFO] Khong tim thay file {mura_weights_path}. ResNet34 khoi tao mac dinh.")
-    # ==============================================================
+        base_model = ResNet34(input_shape=input_layer.shape[1:], weights=None, include_top=False)
+        if weights == "mura":
+            mura_weights_path = 'mura_resnet34_best_weights.h5' if os.path.exists('mura_resnet34_best_weights.h5') else '/workspace/unet3p/mura_resnet34_best_weights.h5'
+            if os.path.exists(mura_weights_path):
+                base_model.load_weights(mura_weights_path, by_name=True, skip_mismatch=True)
+                print("[INFO] ResNet34: MURA pretrained")
+            else:
+                raise FileNotFoundError(f"Cannot find MURA weights at {mura_weights_path}")
+        else:
+            print("[INFO] ResNet34: random init")
 
-    # 3. Trích xuất 5 trạm đặc trưng với tên layer chuẩn xác
-    e1 = base_model.get_layer("relu0").output            
-    e2 = base_model.get_layer("stage2_unit1_relu1").output 
-    e3 = base_model.get_layer("stage3_unit1_relu1").output 
-    e4 = base_model.get_layer("stage4_unit1_relu1").output 
-    e5 = base_model.get_layer("relu1").output            
+    # 3. Tạo encoder model
+    layer_names = ["relu0", "stage2_unit1_relu1", "stage3_unit1_relu1", "stage4_unit1_relu1", "relu1"]
+    encoder = tf.keras.Model(base_model.input, [base_model.get_layer(n).output for n in layer_names], name="resnet34_encoder")
+
+    # Rescale [0, 1] -> [0, 255]
+    rescaled_input = tf.keras.layers.Rescaling(255.0, name="to_0_255")(input_layer)
+
+    # 4. Trích xuất đặc trưng
+    e1, e2, e3, e4, e5 = encoder(rescaled_input)
 
     return [e1, e2, e3, e4, e5]

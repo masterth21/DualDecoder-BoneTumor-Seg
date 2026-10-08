@@ -97,7 +97,10 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     # =========================================================================
     if "34" in backbone_type:
         from .backbones import resnet34_backbone
-        e1, e2, e3, e4, e5 = resnet34_backbone(input_layer)
+        bb_weights = getattr(cfg.MODEL.BACKBONE, "WEIGHTS", "imagenet")
+        if isinstance(bb_weights, str):
+            bb_weights = bb_weights.lower()
+        e1, e2, e3, e4, e5 = resnet34_backbone(input_layer, weights=bb_weights)
 
     else:
         # Default ResNet50V2
@@ -159,65 +162,89 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     print(f"[INFO] Skip BOUNDARY: {bound_skip_cfg.get('TYPE')}-gate @ {bound_skip_cfg.get('STAGES')}")
 
     # =========================================================================
+    # DECODER SETTINGS
+    # =========================================================================
+    is_dual_decoder = getattr(cfg.MODEL, "DUAL_DECODER", True)
+    decoder_cfg = getattr(cfg.MODEL, "DECODER", {})
+    decoder_type = str(decoder_cfg.get("TYPE", "unet")).lower()
+    
+    # =========================================================================
     # 2. REGION DECODER BRANCH
     # =========================================================================
-    # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
-    r4_up = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding='same', name="reg_up4")(bottleneck)
-    e4_att = apply_skip_attention(e4, r4_up, 4, region_skip_cfg, prefix="reg")
-    r4 = layers.Concatenate(name="reg_concat4")([r4_up, e4_att])
-    r4 = conv_block(r4, 512, name_prefix="reg_block4")
+    if decoder_type == "unet3plus":
+        from models.unet3plus_decoder import build_unet3plus_decoder
+        cat_ch_reg = decoder_cfg.get("CAT_CHANNELS_REGION", 64)
+        f_region = build_unet3plus_decoder([e1, e2, e3, e4, e5], cat_ch_reg, prefix="reg", skip_cfg=region_skip_cfg)
+    else:
+        # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
+        r4_up = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding='same', name="reg_up4")(bottleneck)
+        e4_att = apply_skip_attention(e4, r4_up, 4, region_skip_cfg, prefix="reg")
+        r4 = layers.Concatenate(name="reg_concat4")([r4_up, e4_att])
+        r4 = conv_block(r4, 512, name_prefix="reg_block4")
 
-    # --- Tầng 3: 24x24 -> 48x48, skip = e3 ---
-    r3_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="reg_up3")(r4)
-    e3_att = apply_skip_attention(e3, r3_up, 3, region_skip_cfg, prefix="reg")
-    r3 = layers.Concatenate(name="reg_concat3")([r3_up, e3_att])
-    r3 = conv_block(r3, 256, name_prefix="reg_block3")
+        # --- Tầng 3: 24x24 -> 48x48, skip = e3 ---
+        r3_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="reg_up3")(r4)
+        e3_att = apply_skip_attention(e3, r3_up, 3, region_skip_cfg, prefix="reg")
+        r3 = layers.Concatenate(name="reg_concat3")([r3_up, e3_att])
+        r3 = conv_block(r3, 256, name_prefix="reg_block3")
 
-    # --- Tầng 2: 48x48 -> 96x96, skip = e2 ---
-    r2_up = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same', name="reg_up2")(r3)
-    e2_att = apply_skip_attention(e2, r2_up, 2, region_skip_cfg, prefix="reg")
-    r2 = layers.Concatenate(name="reg_concat2")([r2_up, e2_att])
-    r2 = conv_block(r2, 128, name_prefix="reg_block2")
+        # --- Tầng 2: 48x48 -> 96x96, skip = e2 ---
+        r2_up = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same', name="reg_up2")(r3)
+        e2_att = apply_skip_attention(e2, r2_up, 2, region_skip_cfg, prefix="reg")
+        r2 = layers.Concatenate(name="reg_concat2")([r2_up, e2_att])
+        r2 = conv_block(r2, 128, name_prefix="reg_block2")
 
-    # --- Tầng 1: 96x96 -> 192x192, skip = e1 ---
-    r1_up = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same', name="reg_up1")(r2)
-    e1_att = apply_skip_attention(e1, r1_up, 1, region_skip_cfg, prefix="reg")
-    r1 = layers.Concatenate(name="reg_concat1")([r1_up, e1_att])
-    f_region = conv_block(r1, 64, name_prefix="f_region_block")
+        # --- Tầng 1: 96x96 -> 192x192, skip = e1 ---
+        r1_up = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same', name="reg_up1")(r2)
+        e1_att = apply_skip_attention(e1, r1_up, 1, region_skip_cfg, prefix="reg")
+        r1 = layers.Concatenate(name="reg_concat1")([r1_up, e1_att])
+        f_region = conv_block(r1, 64, name_prefix="f_region_block")
 
     # Upsample lên đúng resolution ảnh gốc (192x192 -> 384x384)
     f_region_full = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="reg_full_up")(f_region)
     f_region_full = conv_block(f_region_full, 32, name_prefix="f_region_full")
 
     activation_func = 'sigmoid' if num_classes == 1 else 'softmax'
+    
+    if not is_dual_decoder:
+        # M0 Mode: only Region branch, name output 'refined_output' for compatibility
+        refined_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="refined_output")(f_region_full)
+        model = models.Model(inputs=input_layer, outputs=refined_output, name="M0_Region_Only_ResNet")
+        return model
+
     region_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="region_output")(f_region_full)
 
     # =========================================================================
     # 3. BOUNDARY DECODER BRANCH
     # =========================================================================
-    # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
-    b4_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="bound_up4")(bottleneck)
-    e4_att_b = apply_skip_attention(e4, b4_up, 4, bound_skip_cfg, prefix="bound")
-    b4 = layers.Concatenate(name="bound_concat4")([b4_up, e4_att_b])
-    b4 = conv_block(b4, 256, name_prefix="bound_block4")
+    if decoder_type == "unet3plus":
+        from models.unet3plus_decoder import build_unet3plus_decoder
+        cat_ch_bnd = decoder_cfg.get("CAT_CHANNELS_BOUNDARY", 32)
+        f_boundary = build_unet3plus_decoder([e1, e2, e3, e4, e5], cat_ch_bnd, prefix="bound", skip_cfg=bound_skip_cfg)
+    else:
+        # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
+        b4_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="bound_up4")(bottleneck)
+        e4_att_b = apply_skip_attention(e4, b4_up, 4, bound_skip_cfg, prefix="bound")
+        b4 = layers.Concatenate(name="bound_concat4")([b4_up, e4_att_b])
+        b4 = conv_block(b4, 256, name_prefix="bound_block4")
 
-    # --- Tầng 3: 24x24 -> 48x48, skip = e3 ---
-    b3_up = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same', name="bound_up3")(b4)
-    e3_att_b = apply_skip_attention(e3, b3_up, 3, bound_skip_cfg, prefix="bound")
-    b3 = layers.Concatenate(name="bound_concat3")([b3_up, e3_att_b])
-    b3 = conv_block(b3, 128, name_prefix="bound_block3")
+        # --- Tầng 3: 24x24 -> 48x48, skip = e3 ---
+        b3_up = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same', name="bound_up3")(b4)
+        e3_att_b = apply_skip_attention(e3, b3_up, 3, bound_skip_cfg, prefix="bound")
+        b3 = layers.Concatenate(name="bound_concat3")([b3_up, e3_att_b])
+        b3 = conv_block(b3, 128, name_prefix="bound_block3")
 
-    # --- Tầng 2: 48x48 -> 96x96, skip = e2 ---
-    b2_up = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same', name="bound_up2")(b3)
-    e2_att_b = apply_skip_attention(e2, b2_up, 2, bound_skip_cfg, prefix="bound")
-    b2 = layers.Concatenate(name="bound_concat2")([b2_up, e2_att_b])
-    b2 = conv_block(b2, 64, name_prefix="bound_block2")
+        # --- Tầng 2: 48x48 -> 96x96, skip = e2 ---
+        b2_up = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same', name="bound_up2")(b3)
+        e2_att_b = apply_skip_attention(e2, b2_up, 2, bound_skip_cfg, prefix="bound")
+        b2 = layers.Concatenate(name="bound_concat2")([b2_up, e2_att_b])
+        b2 = conv_block(b2, 64, name_prefix="bound_block2")
 
-    # --- Tầng 1: 96x96 -> 192x192, skip = e1 ---
-    b1_up = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_up1")(b2)
-    e1_att_b = apply_skip_attention(e1, b1_up, 1, bound_skip_cfg, prefix="bound")
-    b1 = layers.Concatenate(name="bound_concat1")([b1_up, e1_att_b])
-    f_boundary = conv_block(b1, 32, name_prefix="f_boundary_block")
+        # --- Tầng 1: 96x96 -> 192x192, skip = e1 ---
+        b1_up = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_up1")(b2)
+        e1_att_b = apply_skip_attention(e1, b1_up, 1, bound_skip_cfg, prefix="bound")
+        b1 = layers.Concatenate(name="bound_concat1")([b1_up, e1_att_b])
+        f_boundary = conv_block(b1, 32, name_prefix="f_boundary_block")
 
     f_boundary_full = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_full_up")(f_boundary)
     f_boundary_full = conv_block(f_boundary_full, 32, name_prefix="f_boundary_full")

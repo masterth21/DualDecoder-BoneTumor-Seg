@@ -29,10 +29,16 @@ DATASET:
 MODEL:
   # Các tùy chọn TYPE: "dual_decoder_resnet", "unet_plus_plus", "hybrid_transunet", "unet3plus"
   TYPE: "dual_decoder_resnet"
+  DUAL_DECODER: true            # false = M0: chỉ 1 nhánh Region
+  DECODER:
+    TYPE: "unet3plus"           # "unet" = decoder cũ, giữ nguyên tên layer
+    CAT_CHANNELS_REGION: 64     # kênh cho UNet3+ region
+    CAT_CHANNELS_BOUNDARY: 32   # kênh cho UNet3+ boundary
   WEIGHTS_FILE_NAME: "model_dual_decoder_resnet_optimal"
   BACKBONE:
     # ResNet34 / ResNet50V2: Trích xuất đặc trưng đa tầng cho 2 nhánh Region & Boundary
     TYPE: "resnet34"
+    WEIGHTS: "imagenet"
   
   # Cấu hình Attention:
   SKIP_ATTENTION:
