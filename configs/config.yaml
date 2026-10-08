@@ -67,6 +67,10 @@ INPUT:
 OUTPUT:
   CLASSES: 3   # 0: Không u (Nền), 1: U lành, 2: U ác
 
+BOUNDARY:
+  KERNEL_SIZE: 5     # số lẻ; độ dày dải biên = KERNEL_SIZE - 1 pixel ở 384x384 (5 -> 4 px)
+  EVAL_TOL: 2        # dung sai (pixel) khi chấm Boundary F1
+
 
 # ============ SIÊU THÔNG SỐ - ĐƯỢC ĐIỀU CHỈNH TỐI ƯU ============
 HYPER_PARAMETERS:

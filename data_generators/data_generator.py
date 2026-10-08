@@ -16,8 +16,10 @@ class DualDecoderWrapper(tf.keras.utils.Sequence):
     2. boundary_output: Ground truth boundary mask (tính tự động)
     3. refined_output: Ground truth region mask (tinh chỉnh)
     """
-    def __init__(self, base_generator):
+    def __init__(self, base_generator, output_names=None, kernel_size=3):
         self.base_generator = base_generator
+        self.output_names = output_names
+        self.kernel_size = kernel_size
 
     def __len__(self):
         return len(self.base_generator)
@@ -26,12 +28,14 @@ class DualDecoderWrapper(tf.keras.utils.Sequence):
         item = self.base_generator[i]
         if isinstance(item, tuple) and len(item) == 2:
             x, y_region = item
-            y_boundary = extract_boundary_tf(y_region)
+            y_boundary = extract_boundary_tf(y_region, kernel_size=self.kernel_size)
             targets = {
                 'region_output': y_region,
                 'boundary_output': y_boundary,
                 'refined_output': y_region
             }
+            if self.output_names:
+                targets = {k: v for k, v in targets.items() if k in self.output_names}
             return x, targets
         return item
 
