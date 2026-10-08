@@ -56,26 +56,24 @@ class ContextAttentionGate(tf.keras.layers.Layer):
             self.conv_ctx = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_ctx", dtype="float32")
             
             # Cross-attention params
-            self.head_dim = self.d_ctx // self.num_heads
-            self.q_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="q_proj", dtype="float32")
-            self.k_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="k_proj", dtype="float32")
-            self.v_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="v_proj", dtype="float32")
+            self.gate_proj_pe = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="gate_proj_pe", dtype="float32")
+            self.skip_proj_pe = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="skip_proj_pe", dtype="float32")
             
             if self.context_type == "nalaformer":
-                self.phi_q_heads = [QueryFeatureMap(name=f"phi_q_h{i}", dtype="float32") for i in range(self.num_heads)]
-                self.phi_k_heads = [KeyFeatureMap(name=f"phi_k_h{i}", dtype="float32") for i in range(self.num_heads)]
-            elif self.context_type in ["log_linear", "multipole"]:
-                self.scale_weight = self.add_weight(
-                    name=f"{self.context_type}_scale",
-                    shape=(1, self.num_heads, 1, 1),
-                    initializer=tf.keras.initializers.Ones(),
-                    trainable=True
-                )
+                from models.attention_cores import NaLaCore
+                self.core = NaLaCore(d_model=self.d_ctx, num_heads=self.num_heads, dtype="float32")
+            elif self.context_type in ["log_linear", "loglinear"]:
+                from models.attention_cores import LogLinearCore
+                self.core = LogLinearCore(d_model=self.d_ctx, num_heads=self.num_heads, dtype="float32")
+            elif self.context_type == "multipole":
+                from models.attention_cores import MultipoleCore
+                self.core = MultipoleCore(d_model=self.d_ctx, num_heads=self.num_heads, dtype="float32")
+            else:
+                raise ValueError(f"Unknown context_type: {self.context_type}")
         
         self.gate_bn = tf.keras.layers.BatchNormalization(name="gate_bn", dtype="float32")
         
         alpha_channels = C_skip if self.per_channel else 1
-        # Initialize bias to 2.0 so alpha is ~0.88 initially
         bias_init = tf.keras.initializers.Constant(2.0)
         kernel_init = tf.keras.initializers.VarianceScaling(scale=0.1)
         self.conv_psi = tf.keras.layers.Conv2D(
@@ -87,9 +85,6 @@ class ContextAttentionGate(tf.keras.layers.Layer):
             dtype="float32"
         )
         super().build(input_shape)
-
-    def _feature_map_elu(self, x):
-        return tf.nn.elu(x) + 1.0
 
     def call(self, inputs, training=None):
         skip, gate = inputs
@@ -104,65 +99,13 @@ class ContextAttentionGate(tf.keras.layers.Layer):
         if self.context_type != "none":
             shape = tf.shape(skip)
             B, H, W = shape[0], shape[1], shape[2]
-            N = H * W
             
-            # Dynamic PE based on current H, W
             pe = get_2d_positional_encoding(B, H, W, self.d_ctx)
             
-            skip_seq = tf.reshape(skip_f32, [B, N, skip.shape[-1]])
-            gate_seq = tf.reshape(gate_f32, [B, N, gate.shape[-1]])
-            pe_seq = tf.reshape(pe, [B, N, self.d_ctx])
+            q_src = self.gate_proj_pe(gate_f32) + pe
+            kv_src = self.skip_proj_pe(skip_f32) + pe
             
-            # Q from gate (decoder), K/V from skip (encoder)
-            q = self.q_proj(gate_seq) + pe_seq
-            k = self.k_proj(skip_seq) + pe_seq
-            v = self.v_proj(skip_seq)
-            
-            if self.context_type == "nalaformer":
-                q_heads = tf.split(q, self.num_heads, axis=-1)
-                k_heads = tf.split(k, self.num_heads, axis=-1)
-                v_heads = tf.split(v, self.num_heads, axis=-1)
-                
-                head_outs = []
-                for i in range(self.num_heads):
-                    q_phi = self.phi_q_heads[i](q_heads[i])
-                    k_phi = self.phi_k_heads[i](k_heads[i])
-                    v_i = v_heads[i]
-                    
-                    q_phi = tf.cast(q_phi, tf.float32)
-                    k_phi = tf.cast(k_phi, tf.float32)
-                    
-                    S = tf.einsum("bni,bnj->bij", k_phi, v_i)
-                    attn = tf.einsum("bni,bij->bnj", q_phi, S)
-                    
-                    k_sum = tf.reduce_sum(tf.abs(k_phi), axis=1)
-                    z = tf.einsum("bni,bi->bn", tf.abs(q_phi), k_sum)
-                    z = tf.maximum(z, 1e-4)
-                    
-                    attn = attn / z[..., tf.newaxis]
-                    attn = tf.clip_by_value(attn, -100.0, 100.0)
-                    head_outs.append(attn)
-                ctx = tf.concat(head_outs, axis=-1)
-                
-            elif self.context_type in ["log_linear", "multipole"]:
-                q = tf.transpose(tf.reshape(q, (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3))
-                k = tf.transpose(tf.reshape(k, (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3))
-                v = tf.transpose(tf.reshape(v, (B, N, self.num_heads, self.head_dim)), (0, 2, 1, 3))
-                
-                q_phi = self._feature_map_elu(q)
-                k_phi = self._feature_map_elu(k)
-                
-                kv = tf.matmul(k_phi, v, transpose_a=True)
-                scale = tf.cast(self.scale_weight, tf.float32) / tf.math.sqrt(tf.cast(self.head_dim, tf.float32))
-                
-                out_num = tf.matmul(q_phi, kv) * scale
-                k_sum = tf.reduce_sum(k_phi, axis=-2, keepdims=True)
-                out_den = tf.reduce_sum(q_phi * k_sum, axis=-1, keepdims=True) + 1e-6
-                
-                ctx = out_num / out_den
-                ctx = tf.reshape(tf.transpose(ctx, (0, 2, 1, 3)), (B, N, self.d_ctx))
-                
-            ctx = tf.reshape(ctx, [B, H, W, self.d_ctx])
+            ctx = self.core(q_src, kv_src, training=training)
             f = f + self.conv_ctx(ctx)
             
         f = tf.nn.relu(self.gate_bn(f, training=training))
