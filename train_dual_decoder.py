@@ -143,29 +143,40 @@ def train_dual_decoder(cfg: DictConfig):
 
     # Get multi-output loss dictionary and loss weights
     losses_dict, loss_weights = get_dual_decoder_losses()
+    
+    # Filter for active outputs
+    active_outputs = model.output_names
+    losses_dict = {k: v for k, v in losses_dict.items() if k in active_outputs}
+    loss_weights = {k: v for k, v in loss_weights.items() if k in active_outputs}
+    
+    metrics_dict = {}
+    if 'refined_output' in active_outputs:
+        metrics_dict['refined_output'] = [
+            dice_coef_refined, dice_benign_refined, dice_malignant_refined,
+            iou_refined, prec_refined, rec_refined
+        ]
+    if 'region_output' in active_outputs:
+        metrics_dict['region_output'] = [dice_coef_region]
 
     model.compile(
         optimizer=optimizer,
         loss=losses_dict,
         loss_weights=loss_weights,
-        metrics={
-            'refined_output': [
-                dice_coef_refined, dice_benign_refined, dice_malignant_refined,
-                iou_refined, prec_refined, rec_refined
-            ],
-            'region_output': [dice_coef_region]
-        }
+        metrics=metrics_dict
     )
 
-    print("\n[INFO] Model Summary:")
+    print(f"\n[INFO] Model Summary:")
     model.summary()
+    
+    kernel_size = getattr(cfg.BOUNDARY, "KERNEL_SIZE", 3)
+    print(f"[INFO] Boundary band: {kernel_size - 1} px (kernel {kernel_size})")
 
     # Data Generators wrapped with DualDecoderWrapper (Ground Truth Boundary Generator)
     base_train_gen = data_generator.get_data_generator(cfg, "TRAIN", strategy)
     base_val_gen = data_generator.get_data_generator(cfg, "VAL", strategy)
 
-    train_generator = DualDecoderWrapper(base_train_gen)
-    val_generator = DualDecoderWrapper(base_val_gen)
+    train_generator = DualDecoderWrapper(base_train_gen, output_names=model.output_names, kernel_size=kernel_size)
+    val_generator = DualDecoderWrapper(base_val_gen, output_names=model.output_names, kernel_size=kernel_size)
 
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     tb_log_dir = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.TENSORBOARD.PATH, f"dual_decoder_{run_timestamp}")
@@ -176,7 +187,18 @@ def train_dual_decoder(cfg: DictConfig):
 
     csv_log_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.CSV_LOGGER.PATH, f"training_logs_dual_decoder_{run_timestamp}.csv")
 
+    print("[INFO] Evaluating on 1 batch to get correct metric names...")
+    test_batch = val_generator[0]
+    eval_metrics = model.evaluate(test_batch[0], test_batch[1], steps=1, return_dict=True, verbose=0)
+    eval_keys = list(eval_metrics.keys())
     evaluation_metric = "val_refined_output_dice_coef"
+    for k in eval_keys:
+        if "dice_coef" in k and "val" not in k:
+            val_k = "val_" + k
+            if val_k in eval_keys and ("refined" in val_k or val_k == "val_dice_coef"):
+                evaluation_metric = val_k
+    
+    print(f"[INFO] Monitor: {evaluation_metric}")
 
     timing_callback = TimingCallback()
     reduce_lr_patience = getattr(cfg.CALLBACKS.REDUCE_LR_ON_PLATEAU, "PATIENCE", 15)

@@ -174,7 +174,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     if decoder_type == "unet3plus":
         from models.unet3plus_decoder import build_unet3plus_decoder
         cat_ch_reg = decoder_cfg.get("CAT_CHANNELS_REGION", 64)
-        f_region_full = build_unet3plus_decoder([e1, e2, e3, e4, e5], cat_ch_reg, prefix="reg", skip_cfg=region_skip_cfg)
+        f_region_full = build_unet3plus_decoder([e1, e2, e3, e4, bottleneck], cat_ch_reg, prefix="reg", skip_cfg=region_skip_cfg)
     else:
         # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
         r4_up = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding='same', name="reg_up4")(bottleneck)
@@ -220,7 +220,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     if decoder_type == "unet3plus":
         from models.unet3plus_decoder import build_unet3plus_decoder
         cat_ch_bnd = decoder_cfg.get("CAT_CHANNELS_BOUNDARY", 32)
-        f_boundary_full = build_unet3plus_decoder([e1, e2, e3, e4, e5], cat_ch_bnd, prefix="bound", skip_cfg=bound_skip_cfg)
+        f_boundary_full = build_unet3plus_decoder([e1, e2, e3, e4, bottleneck], cat_ch_bnd, prefix="bound", skip_cfg=bound_skip_cfg)
     else:
         # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
         b4_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="bound_up4")(bottleneck)
