@@ -174,7 +174,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     if decoder_type == "unet3plus":
         from models.unet3plus_decoder import build_unet3plus_decoder
         cat_ch_reg = decoder_cfg.get("CAT_CHANNELS_REGION", 64)
-        f_region = build_unet3plus_decoder([e1, e2, e3, e4, e5], cat_ch_reg, prefix="reg", skip_cfg=region_skip_cfg)
+        f_region_full = build_unet3plus_decoder([e1, e2, e3, e4, e5], cat_ch_reg, prefix="reg", skip_cfg=region_skip_cfg)
     else:
         # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
         r4_up = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding='same', name="reg_up4")(bottleneck)
@@ -200,9 +200,9 @@ def build_dual_decoder_resnet(cfg: DictConfig):
         r1 = layers.Concatenate(name="reg_concat1")([r1_up, e1_att])
         f_region = conv_block(r1, 64, name_prefix="f_region_block")
 
-    # Upsample lên đúng resolution ảnh gốc (192x192 -> 384x384)
-    f_region_full = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="reg_full_up")(f_region)
-    f_region_full = conv_block(f_region_full, 32, name_prefix="f_region_full")
+        # Upsample lên đúng resolution ảnh gốc (192x192 -> 384x384)
+        f_region_full = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="reg_full_up")(f_region)
+        f_region_full = conv_block(f_region_full, 32, name_prefix="f_region_full")
 
     activation_func = 'sigmoid' if num_classes == 1 else 'softmax'
     
@@ -220,7 +220,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     if decoder_type == "unet3plus":
         from models.unet3plus_decoder import build_unet3plus_decoder
         cat_ch_bnd = decoder_cfg.get("CAT_CHANNELS_BOUNDARY", 32)
-        f_boundary = build_unet3plus_decoder([e1, e2, e3, e4, e5], cat_ch_bnd, prefix="bound", skip_cfg=bound_skip_cfg)
+        f_boundary_full = build_unet3plus_decoder([e1, e2, e3, e4, e5], cat_ch_bnd, prefix="bound", skip_cfg=bound_skip_cfg)
     else:
         # --- Tầng 4: bottleneck -> 24x24, skip = e4 ---
         b4_up = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same', name="bound_up4")(bottleneck)
@@ -246,8 +246,8 @@ def build_dual_decoder_resnet(cfg: DictConfig):
         b1 = layers.Concatenate(name="bound_concat1")([b1_up, e1_att_b])
         f_boundary = conv_block(b1, 32, name_prefix="f_boundary_block")
 
-    f_boundary_full = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_full_up")(f_boundary)
-    f_boundary_full = conv_block(f_boundary_full, 32, name_prefix="f_boundary_full")
+        f_boundary_full = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_full_up")(f_boundary)
+        f_boundary_full = conv_block(f_boundary_full, 32, name_prefix="f_boundary_full")
 
     boundary_output = layers.Conv2D(num_classes, (1, 1), activation='sigmoid', dtype='float32', name="boundary_output")(f_boundary_full)
 

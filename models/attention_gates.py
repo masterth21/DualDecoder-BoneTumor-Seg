@@ -1,6 +1,4 @@
 import tensorflow as tf
-from models.nalaformer_attention import QueryFeatureMap, KeyFeatureMap
-
 def get_2d_positional_encoding(b, h, w, d):
     """
     Generate 2D sinusoidal positional embeddings for (B, H, W, d).

@@ -121,7 +121,12 @@ class LogLinearCore(tf.keras.layers.Layer):
             next_KV = tf.cond(l < L_val, lambda: tf.nn.avg_pool2d(current_KV, 2, 2, 'VALID'), lambda: current_KV)
             return l + 1, next_KV, U_array
 
-        _, _, U_array = tf.while_loop(cond, body, loop_vars=[0, KV_padded, U_array], maximum_iterations=self.max_L+1)
+        shape_invs = [
+            tf.TensorShape([]),
+            tf.TensorShape([None, None, None, self.num_heads * self.head_dim * self.head_dim]),
+            tf.TensorShape(None)
+        ]
+        _, _, U_array = tf.while_loop(cond, body, loop_vars=[0, KV_padded, U_array], maximum_iterations=self.max_L+1, shape_invariants=shape_invs)
         
         lambdas = tf.nn.softplus(self.lambda_proj(q_src))
         lambdas = tf.reshape(lambdas, [B, H_q, W_q, self.num_heads, self.max_L + 1])
@@ -139,7 +144,7 @@ class LogLinearCore(tf.keras.layers.Layer):
             S_l = S_l[:, :H_q, :W_q, :]
             S_l = tf.reshape(S_l, [B, H_q, W_q, self.num_heads, self.head_dim, self.head_dim])
             lam = tf.reshape(lambdas[:, :, :, :, l], [B, H_q, W_q, self.num_heads, 1])
-            q_S_l = tf.einsum('bhwhd,bhwhde->bhwhe', Q, S_l)
+            q_S_l = tf.einsum('bxyhd,bxyhde->bxyhe', Q, S_l)
             out = out + lam * q_S_l
             return l + 1, out
 
