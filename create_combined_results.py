@@ -154,7 +154,12 @@ def main(cfg: DictConfig):
     overall_micro_ious = []
     overall_micro_precs = []
     overall_micro_recs = []
-
+    
+    hd95_benign = []
+    hd95_malignant = []
+    hd95_tumor = []
+    bf1_list = []
+    
     global_tp = {1: 0, 2: 0}
     global_fp = {1: 0, 2: 0}
     global_fn = {1: 0, 2: 0}
@@ -195,7 +200,8 @@ def main(cfg: DictConfig):
 
         # Nếu chưa có boundary GT trên đĩa, tạo on-the-fly bằng morphological gradient
         # Tạo boundary per-class để phân biệt u lành vs u ác khi hiển thị
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        kernel_size = getattr(cfg.BOUNDARY, "KERNEL_SIZE", 3)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
         boundary_gt_benign = np.zeros_like(gt_mask, dtype=np.uint8)
         boundary_gt_malignant = np.zeros_like(gt_mask, dtype=np.uint8)
         for cls in [1, 2]:
@@ -249,7 +255,8 @@ def main(cfg: DictConfig):
             boundary_pred_binary = (bp_merged > 0.5).astype(np.uint8) * 255
         else:
             # Fallback: tạo boundary từ predicted mask nếu model không có boundary head
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            kernel_size = getattr(cfg.BOUNDARY, "KERNEL_SIZE", 3)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
             boundary_pred_binary = np.zeros_like(pred_class, dtype=np.uint8)
             for cls in [1, 2]:
                 cls_mask = (pred_class == cls).astype(np.uint8)

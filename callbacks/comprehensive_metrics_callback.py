@@ -55,9 +55,18 @@ class ComprehensiveMetricsCallback(tf.keras.callbacks.Callback):
         print("   Đang đánh giá chi tiết trên tập Validation...")
         print("=" * 88)
 
-        tp = {1: 0, 2: 0}
-        fp = {1: 0, 2: 0}
-        fn = {1: 0, 2: 0}
+        tp = {1: 0, 2: 0, 'tumor': 0}
+        fp = {1: 0, 2: 0, 'tumor': 0}
+        fn = {1: 0, 2: 0, 'tumor': 0}
+        
+        hd95_vals = {1: [], 2: [], 'tumor': []}
+        bf_vals = []
+        
+        import sys
+        sys.path.append('.')
+        from utils.seg_metrics import hd95, boundary_f1, contour, summarize_hd95
+        
+        tol = getattr(self.cfg.BOUNDARY, "EVAL_TOL", 2)
 
         for i in range(len(self.val_generator)):
             batch = self.val_generator[i]
@@ -71,25 +80,58 @@ class ComprehensiveMetricsCallback(tf.keras.callbacks.Callback):
                 y_true = y_targets
 
             preds = self.model(x_val, training=False)
-            if isinstance(preds, (list, tuple)):
-                y_pred = preds[-1].numpy()
-            else:
-                y_pred = preds.numpy()
-
-            if y_true.shape[-1] > 1:
-                y_true_cls = np.argmax(y_true, axis=-1)
-            else:
-                y_true_cls = np.squeeze(y_true, axis=-1).astype(int)
-
-            y_pred_cls = np.argmax(y_pred, axis=-1)
-
-            for c in [1, 2]:
-                true_c = (y_true_cls == c)
-                pred_c = (y_pred_cls == c)
-                tp[c] += np.sum(true_c & pred_c)
-                fp[c] += np.sum((~true_c) & pred_c)
-                fn[c] += np.sum(true_c & (~pred_c))
-
+            if not isinstance(preds, (list, tuple)):
+                preds = [preds]
+            out = dict(zip(self.model.output_names, preds))
+            y_pred = out["refined_output"].numpy()
+            
+            y_pred_boundary = None
+            if "boundary_output" in out:
+                bp = out["boundary_output"].numpy()
+                if bp.shape[-1] > 1:
+                    bp_merged = np.max(bp[..., 1:], axis=-1)
+                else:
+                    bp_merged = bp[..., 0]
+                y_pred_boundary = bp_merged > 0.5
+            
+            # shape (B, H, W, C)
+            for b_idx in range(x_val.shape[0]):
+                yt = y_true[b_idx]
+                yp = y_pred[b_idx]
+                
+                if yt.shape[-1] > 1:
+                    yt_cls = np.argmax(yt, axis=-1)
+                else:
+                    yt_cls = np.squeeze(yt, axis=-1).astype(int)
+                
+                yp_cls = np.argmax(yp, axis=-1)
+                
+                for c in [1, 2]:
+                    true_c = (yt_cls == c)
+                    pred_c = (yp_cls == c)
+                    tp[c] += np.sum(true_c & pred_c)
+                    fp[c] += np.sum((~true_c) & pred_c)
+                    fn[c] += np.sum(true_c & (~pred_c))
+                    
+                    val, st = hd95(pred_c, true_c)
+                    hd95_vals[c].append((val, st))
+                    
+                true_u = (yt_cls > 0)
+                pred_u = (yp_cls > 0)
+                tp['tumor'] += np.sum(true_u & pred_u)
+                fp['tumor'] += np.sum((~true_u) & pred_u)
+                fn['tumor'] += np.sum(true_u & (~pred_u))
+                
+                val, st = hd95(pred_u, true_u)
+                hd95_vals['tumor'].append((val, st))
+                
+                if y_pred_boundary is not None:
+                    yp_b = y_pred_boundary[b_idx]
+                    gt_b = contour(true_u)
+                    bf = boundary_f1(yp_b, gt_b, tol=tol)
+                    if bf is not None:
+                        bf_vals.append(bf)
+                        
         eps = 1e-7
         def calc_metrics(c):
             dice = (2.0 * tp[c] + eps) / (2.0 * tp[c] + fp[c] + fn[c] + eps)
@@ -98,28 +140,39 @@ class ComprehensiveMetricsCallback(tf.keras.callbacks.Callback):
             rec = (tp[c] + eps) / (tp[c] + fn[c] + eps)
             return dice, iou, prec, rec
 
-        dice_b, iou_b, prec_b, rec_b = calc_metrics(1)  # U lanh
-        dice_m, iou_m, prec_m, rec_m = calc_metrics(2)  # U ac
-
+        dice_b, iou_b, prec_b, rec_b = calc_metrics(1)
+        dice_m, iou_m, prec_m, rec_m = calc_metrics(2)
+        dice_u, iou_u, prec_u, rec_u = calc_metrics('tumor')
+        
         dice_avg = (dice_b + dice_m) / 2.0
         iou_avg = (iou_b + iou_m) / 2.0
         prec_avg = (prec_b + prec_m) / 2.0
         rec_avg = (rec_b + rec_m) / 2.0
 
+        sum_b = summarize_hd95(hd95_vals[1])
+        sum_m = summarize_hd95(hd95_vals[2])
+        sum_u = summarize_hd95(hd95_vals['tumor'])
+
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        print("\n" + "=" * 88)
+        print("\n" + "=" * 105)
         print(f"📊 [BẢNG TỔNG KẾT CHỈ SỐ CUỐI CÙNG] - {current_time}")
-        print("-" * 88)
-        print(f"   {'Class / Metric':<20} | {'Dice Score':<14} | {'IoU':<12} | {'Precision':<12} | {'Recall':<12}")
-        print("-" * 88)
-        print(f"   {'U Lanh (Benign)':<20} | {dice_b:<14.4f} | {iou_b:<12.4f} | {prec_b:<12.4f} | {rec_b:<12.4f}")
-        print(f"   {'U Ac (Malignant)':<20} | {dice_m:<14.4f} | {iou_m:<12.4f} | {prec_m:<12.4f} | {rec_m:<12.4f}")
-        print("-" * 88)
-        print(f"   {'TONG HOP (OVERALL)':<20} | {dice_avg:<14.4f} | {iou_avg:<12.4f} | {prec_avg:<12.4f} | {rec_avg:<12.4f}")
-        print("=" * 88 + "\n")
+        print("-" * 105)
+        print(f"   {'Class / Metric':<20} | {'Dice':<10} | {'IoU':<10} | {'Precision':<10} | {'Recall':<10} | {'HD95 mean':<12} | {'HD95 med':<12}")
+        print("-" * 105)
+        print(f"   {'U Lanh (Benign)':<20} | {dice_b:<10.4f} | {iou_b:<10.4f} | {prec_b:<10.4f} | {rec_b:<10.4f} | {sum_b['mean']:<12.1f} | {sum_b['median']:<12.1f}")
+        print(f"   {'U Ac (Malignant)':<20} | {dice_m:<10.4f} | {iou_m:<10.4f} | {prec_m:<10.4f} | {rec_m:<10.4f} | {sum_m['mean']:<12.1f} | {sum_m['median']:<12.1f}")
+        print(f"   {'U (nhi phan)':<20} | {dice_u:<10.4f} | {iou_u:<10.4f} | {prec_u:<10.4f} | {rec_u:<10.4f} | {sum_u['mean']:<12.1f} | {sum_u['median']:<12.1f}")
+        print("-" * 105)
+        if y_pred_boundary is not None:
+            bf1_mean = np.mean([v['f1'] for v in bf_vals]) if bf_vals else 0.0
+            bp_mean = np.mean([v['precision'] for v in bf_vals]) if bf_vals else 0.0
+            br_mean = np.mean([v['recall'] for v in bf_vals]) if bf_vals else 0.0
+            print(f"   Boundary F1@{tol}px: {bf1_mean*100:.1f}% (P {bp_mean*100:.1f}% | R {br_mean*100:.1f}%)   |   HD95 bỏ qua: missed {sum_u['missed']}, false_pos {sum_u['false_pos']}")
+        else:
+            print(f"   Boundary F1: N/A   |   HD95 bỏ qua: missed {sum_u['missed']}, false_pos {sum_u['false_pos']}")
+        print("=" * 105 + "\n")
 
-        # Ghi dong log vao file CSV tong ket
         with open(self.csv_file, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
