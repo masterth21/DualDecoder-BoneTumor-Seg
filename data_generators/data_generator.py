@@ -36,6 +36,8 @@ class DualDecoderWrapper(tf.keras.utils.Sequence):
             }
             if self.output_names:
                 targets = {k: v for k, v in targets.items() if k in self.output_names}
+                if len(self.output_names) == 1:
+                    return x, targets[self.output_names[0]]
             return x, targets
         return item
 
