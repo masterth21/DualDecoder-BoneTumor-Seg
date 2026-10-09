@@ -3,6 +3,7 @@ Utility functions for image processing
 """
 import numpy as np
 import cv2
+import os
 from omegaconf import DictConfig
 import matplotlib.pyplot as plt
 
@@ -77,7 +78,8 @@ def image_to_mask_name(image_name: str):
     replace image with mask
     """
 
-    return image_name.replace('image', 'mask')
+    stem, _ = os.path.splitext(image_name.replace('image', 'mask'))
+    return stem + ".png"
 
 
 def postprocess_mask(mask, classes, output_type=np.int32):
