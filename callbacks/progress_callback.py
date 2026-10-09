@@ -10,12 +10,13 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
     Tránh việc terminal bị tràn dòng sinh ra 300-400 dòng log mỗi epoch.
     """
 
-    def __init__(self, total_steps, epochs):
+    def __init__(self, total_steps, epochs, metric_prefix="refined_output_"):
         super().__init__()
         self.total_steps = max(1, total_steps)
         self.epochs = epochs
         self.epoch_start_time = None
         self.current_epoch = 1
+        self.metric_prefix = metric_prefix
 
     def on_epoch_begin(self, epoch, logs=None):
         self.epoch_start_time = time.time()
@@ -39,12 +40,12 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
         bnd_loss = logs.get('boundary_output_loss', 0.0)
         ref_loss = logs.get('refined_output_loss', 0.0)
         
-        refined_dice = logs.get('refined_output_dice_coef', 0.0)
-        dice_b = logs.get('refined_output_dice_benign', 0.0)
-        dice_m = logs.get('refined_output_dice_malignant', 0.0)
-        iou = logs.get('refined_output_iou', 0.0)
-        prec = logs.get('refined_output_precision', 0.0)
-        rec = logs.get('refined_output_recall', 0.0)
+        refined_dice = logs.get(f'{self.metric_prefix}dice_coef', 0.0)
+        dice_b = logs.get(f'{self.metric_prefix}dice_benign', 0.0)
+        dice_m = logs.get(f'{self.metric_prefix}dice_malignant', 0.0)
+        iou = logs.get(f'{self.metric_prefix}iou', 0.0)
+        prec = logs.get(f'{self.metric_prefix}precision', 0.0)
+        rec = logs.get(f'{self.metric_prefix}recall', 0.0)
 
         # Thanh tiến trình gọn, không bao giờ bị wrap trên terminal
         msg = (f"\rEp {self.current_epoch:03d}/{self.epochs} [{bar}] {step}/{self.total_steps} | "
@@ -68,19 +69,19 @@ class CompactProgressCallback(tf.keras.callbacks.Callback):
         v_bnd = logs.get('val_boundary_output_loss', 0.0)
         v_ref = logs.get('val_refined_output_loss', 0.0)
 
-        train_dice = logs.get('refined_output_dice_coef', 0.0)
-        train_dice_b = logs.get('refined_output_dice_benign', 0.0)
-        train_dice_m = logs.get('refined_output_dice_malignant', 0.0)
-        train_iou = logs.get('refined_output_iou', 0.0)
-        train_prec = logs.get('refined_output_precision', 0.0)
-        train_rec = logs.get('refined_output_recall', 0.0)
+        train_dice = logs.get(f'{self.metric_prefix}dice_coef', 0.0)
+        train_dice_b = logs.get(f'{self.metric_prefix}dice_benign', 0.0)
+        train_dice_m = logs.get(f'{self.metric_prefix}dice_malignant', 0.0)
+        train_iou = logs.get(f'{self.metric_prefix}iou', 0.0)
+        train_prec = logs.get(f'{self.metric_prefix}precision', 0.0)
+        train_rec = logs.get(f'{self.metric_prefix}recall', 0.0)
 
-        val_dice = logs.get('val_refined_output_dice_coef', 0.0)
-        val_dice_b = logs.get('val_refined_output_dice_benign', 0.0)
-        val_dice_m = logs.get('val_refined_output_dice_malignant', 0.0)
-        val_iou = logs.get('val_refined_output_iou', 0.0)
-        val_prec = logs.get('val_refined_output_precision', 0.0)
-        val_rec = logs.get('val_refined_output_recall', 0.0)
+        val_dice = logs.get(f'val_{self.metric_prefix}dice_coef', 0.0)
+        val_dice_b = logs.get(f'val_{self.metric_prefix}dice_benign', 0.0)
+        val_dice_m = logs.get(f'val_{self.metric_prefix}dice_malignant', 0.0)
+        val_iou = logs.get(f'val_{self.metric_prefix}iou', 0.0)
+        val_prec = logs.get(f'val_{self.metric_prefix}precision', 0.0)
+        val_rec = logs.get(f'val_{self.metric_prefix}recall', 0.0)
 
         sys.stdout.write("\r" + " " * 160 + "\r")
         summary = (

@@ -189,15 +189,15 @@ def train_dual_decoder(cfg: DictConfig):
 
     print("[INFO] Evaluating on 1 batch to get correct metric names...")
     test_batch = val_generator[0]
-    eval_metrics = model.evaluate(test_batch[0], test_batch[1], steps=1, return_dict=True, verbose=0)
-    eval_keys = list(eval_metrics.keys())
-    evaluation_metric = "val_refined_output_dice_coef"
-    for k in eval_keys:
-        if "dice_coef" in k and "val" not in k:
-            val_k = "val_" + k
-            if val_k in eval_keys and ("refined" in val_k or val_k == "val_dice_coef"):
-                evaluation_metric = val_k
+    ev = model.evaluate(test_batch[0], test_batch[1], steps=1, return_dict=True, verbose=0)
+    if "refined_output_dice_coef" in ev:
+        metric_prefix = "refined_output_"
+    elif "dice_coef" in ev:
+        metric_prefix = ""
+    else:
+        raise RuntimeError(f"Không tìm thấy dice_coef trong {list(ev)}")
     
+    evaluation_metric = f"val_{metric_prefix}dice_coef"
     print(f"[INFO] Monitor: {evaluation_metric}")
 
     timing_callback = TimingCallback()
@@ -228,7 +228,8 @@ def train_dual_decoder(cfg: DictConfig):
 
     compact_progress = CompactProgressCallback(
         total_steps=training_steps,
-        epochs=cfg.HYPER_PARAMETERS.EPOCHS
+        epochs=cfg.HYPER_PARAMETERS.EPOCHS,
+        metric_prefix=metric_prefix
     )
 
     callbacks = [
