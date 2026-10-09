@@ -72,7 +72,7 @@ class NaLaCore(tf.keras.layers.Layer):
 
 class LogLinearCore(tf.keras.layers.Layer):
     """
-    chuyß╗ân thß╗â 2D kh├┤ng nh├ón quß║ú; quad-tree thay cho Fenwick tree 1D; kh├┤ng c├│ gating/decay
+    chuyển thể 2D không nhân quả; quad-tree thay cho Fenwick tree 1D; không có gating/decay
     """
     def __init__(self, d_model, num_heads, max_L=10, **kwargs):
         super().__init__(**kwargs)
