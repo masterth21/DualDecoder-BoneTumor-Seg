@@ -13,8 +13,7 @@ import hydra
 from omegaconf import DictConfig
 from models.model import prepare_model
 from utils.general_utils import join_paths
-
-
+from utils.seg_metrics import hd95, boundary_f1, contour, boundary_dice, summarize_hd95
 def calculate_dice(y_true, y_pred, classes=[1, 2]):
     """
     Tính Dice Score cho các lớp khối u (1: U lành, 2: U ác).
@@ -338,6 +337,38 @@ def main(cfg: DictConfig):
         overall_micro_precs.append(prec_micro_img)
         overall_micro_recs.append(rec_micro_img)
 
+        # 4.5 HD95 & Boundary F1
+        hd95_b_val, hd95_b_stat = hd95(pred_b, true_b)
+        hd95_m_val, hd95_m_stat = hd95(pred_m, true_m)
+        hd95_u_val, hd95_u_stat = hd95(pred_tumor, true_tumor)
+        hd95_benign.append((hd95_b_val, hd95_b_stat))
+        hd95_malignant.append((hd95_m_val, hd95_m_stat))
+        hd95_tumor.append((hd95_u_val, hd95_u_stat))
+        
+        hd95_str_b = f"{hd95_b_val:.2f}" if hd95_b_val is not None else hd95_b_stat
+        hd95_str_m = f"{hd95_m_val:.2f}" if hd95_m_val is not None else hd95_m_stat
+        hd95_str_u = f"{hd95_u_val:.2f}" if hd95_u_val is not None else hd95_u_stat
+
+        tol = getattr(cfg.BOUNDARY, "EVAL_TOL", 2)
+        if boundary_pred_raw is not None:
+            bf_res = boundary_f1(boundary_pred_binary > 0, contour(true_tumor), tol=tol)
+            bd_res = boundary_dice(boundary_pred_binary > 0, contour(true_tumor))
+            if bf_res is not None:
+                bf1_list.append(bf_res)
+                bf_str = f"{bf_res['f1']:.4f}"
+                bf_p_str = f"{bf_res['precision']:.4f}"
+                bf_r_str = f"{bf_res['recall']:.4f}"
+            else:
+                bf_str = "N/A"
+                bf_p_str = "N/A"
+                bf_r_str = "N/A"
+            bd_str = f"{bd_res:.4f}" if bd_res is not None else "N/A"
+        else:
+            bf_str = "N/A"
+            bf_p_str = "N/A"
+            bf_r_str = "N/A"
+            bd_str = "N/A"
+
         # Tích lũy ma trận nhầm lẫn toàn cục (Global TP, FP, FN)
         global_tp[1] += int(tp_b)
         global_fp[1] += int(fp_b)
@@ -352,7 +383,9 @@ def main(cfg: DictConfig):
             f"{base}.png", dice_b_str, dice_m_str,
             f"{d_macro_img:.4f}", f"{d_micro_img:.4f}",
             f"{iou_micro_img:.4f}", f"{prec_micro_img:.4f}",
-            f"{rec_micro_img:.4f}", f"{d_micro_img:.4f}"
+            f"{rec_micro_img:.4f}", f"{d_micro_img:.4f}",
+            hd95_str_b, hd95_str_m, hd95_str_u,
+            bf_str, bf_p_str, bf_r_str, bd_str
         ])
 
         # Điểm Dice hiển thị lên tiêu đề ảnh (Macro giữa 2 lớp u)
@@ -372,8 +405,10 @@ def main(cfg: DictConfig):
 
         # 5.3 Ảnh Boundary Prediction từ nhánh Boundary Decoder (xanh dương trên nền đen)
         boundary_pred_display = np.zeros_like(original)
+        gt_u_contour = contour(true_tumor)
+        boundary_pred_display[gt_u_contour] = [150, 150, 150] # trắng mờ
         boundary_pred_mask = (boundary_pred_binary > 128) if boundary_pred_binary.max() > 1 else (boundary_pred_binary > 0)
-        boundary_pred_display[boundary_pred_mask] = [0, 180, 255]  # Xanh dương sáng
+        boundary_pred_display[boundary_pred_mask] = [0, 180, 255]  # Xanh dương sáng đè lên
 
         # 5.4 Ảnh Prediction Mask (Ám màu X-ray xanh dương, overlay màu đỏ)
         pred_display = original.copy()
@@ -411,12 +446,18 @@ def main(cfg: DictConfig):
         axes[2].set_title("Ground Truth Mask", fontsize=10, fontweight='bold')
         axes[2].axis('off')
 
+        if boundary_pred_raw is not None and bf_str != "N/A":
+            bnd_title = f"Boundary Prediction\nBF1@{tol}px: {float(bf_str)*100:.1f}%\n(P {float(bf_p_str)*100:.1f}% | R {float(bf_r_str)*100:.1f}%)"
+        else:
+            bnd_title = f"Boundary Prediction\nBF1@{tol}px: N/A"
+            
         axes[3].imshow(boundary_pred_display)
-        axes[3].set_title("Boundary Prediction", fontsize=10, fontweight='bold', color='deepskyblue')
+        axes[3].set_title(bnd_title, fontsize=10, fontweight='bold', color='deepskyblue')
         axes[3].axis('off')
 
+        hd95_display = f"{hd95_u_val:.1f} px" if hd95_u_val is not None else "N/A"
         axes[4].imshow(pred_display)
-        axes[4].set_title(f"Pred Mask (Dice: {d_micro_img:.4f})", fontsize=10, fontweight='bold', color='red')
+        axes[4].set_title(f"Pred Mask\nDice: {d_micro_img:.4f} | HD95: {hd95_display}", fontsize=10, fontweight='bold', color='red')
         axes[4].axis('off')
 
         # Lưu ảnh ghép
@@ -480,13 +521,28 @@ def main(cfg: DictConfig):
 
     eval_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # Tính summary HD95
+    hd95_b_sum = summarize_hd95(hd95_benign)
+    hd95_m_sum = summarize_hd95(hd95_malignant)
+    hd95_u_sum = summarize_hd95(hd95_tumor)
+
+    valid_bf1s = [b for b in bf1_list if b is not None]
+    if len(valid_bf1s) > 0:
+        mean_bf1 = np.mean([b['f1'] for b in valid_bf1s])
+        mean_bf_p = np.mean([b['precision'] for b in valid_bf1s])
+        mean_bf_r = np.mean([b['recall'] for b in valid_bf1s])
+    else:
+        mean_bf1, mean_bf_p, mean_bf_r = 0.0, 0.0, 0.0
+
     # 1. Lưu file prediction_details_test.csv (chi tiết từng ảnh)
     csv_path = os.path.join(output_dir, "prediction_details_test.csv")
     with open(csv_path, mode='w', newline='', encoding='utf-8') as f_csv:
         writer = csv.writer(f_csv)
         writer.writerow([
             "Image_Name", "Dice_Benign", "Dice_Malignant",
-            "Macro_Dice", "Micro_Dice", "IoU_Micro", "Precision", "Recall", "F1_Score"
+            "Macro_Dice", "Micro_Dice", "IoU_Micro", "Precision", "Recall", "F1_Score",
+            "HD95_Benign", "HD95_Malignant", "HD95_Tumor",
+            "BF1", "BF_Precision", "BF_Recall", "Boundary_Dice"
         ])
         writer.writerows(per_image_records)
 
@@ -521,7 +577,9 @@ def main(cfg: DictConfig):
         "Weights_File", "Global_Micro_Dice", "Global_Macro_Dice",
         "Dice_Benign(Lanh)", "Dice_Malignant(Ac)", "Global_Micro_IoU",
         "Global_Macro_IoU", "Global_Micro_Precision", "Global_Micro_Recall",
-        "Mean_Img_Micro_Dice", "Mean_Img_Macro_Dice", "Val_Dataset_Path", "Num_Images"
+        "Mean_Img_Micro_Dice", "Mean_Img_Macro_Dice", "Val_Dataset_Path", "Num_Images",
+        "HD95_U_Mean", "HD95_U_Median", "HD95_U_Miss", "HD95_U_FP",
+        "BF1_Mean", "BF_Prec_Mean", "BF_Rec_Mean"
     ]
 
     history_row = [
@@ -544,7 +602,14 @@ def main(cfg: DictConfig):
         f"{img_micro_dice:.4f}",
         f"{img_macro_dice:.4f}",
         val_images_dir,
-        len(mask_files)
+        len(mask_files),
+        f"{hd95_u_sum['mean']:.4f}",
+        f"{hd95_u_sum['median']:.4f}",
+        str(hd95_u_sum['missed']),
+        str(hd95_u_sum['false_pos']),
+        f"{mean_bf1:.4f}",
+        f"{mean_bf_p:.4f}",
+        f"{mean_bf_r:.4f}"
     ]
 
     # Lưu vào cả thư mục outputs chung và thư mục output_dir hiện tại nếu khác nhau
@@ -613,6 +678,19 @@ II. ĐÁNH GIÁ TRUNG BÌNH TỪNG ẢNH (PER-IMAGE MEAN METRICS)
    - Mean Micro IoU     : {img_micro_iou:.4f} ({img_micro_iou * 100:.2f}%)
    - Mean Micro Prec    : {img_micro_prec:.4f} ({img_micro_prec * 100:.2f}%)
    - Mean Micro Rec     : {img_micro_rec:.4f} ({img_micro_rec * 100:.2f}%)
+
+----------------------------------------------------------------------------------------
+III. ĐÁNH GIÁ KHOẢNG CÁCH (HD95) VÀ ĐỘ CHÍNH XÁC BIÊN (BOUNDARY F1)
+----------------------------------------------------------------------------------------
+1. Khoảng cách Hausdorff 95% (HD95 - px):
+   - U Lành (Benign)    : Mean = {hd95_b_sum['mean']:.2f} | Median = {hd95_b_sum['median']:.2f} | Missed = {hd95_b_sum['missed']} | False_Pos = {hd95_b_sum['false_pos']}
+   - U Ác (Malignant)   : Mean = {hd95_m_sum['mean']:.2f} | Median = {hd95_m_sum['median']:.2f} | Missed = {hd95_m_sum['missed']} | False_Pos = {hd95_m_sum['false_pos']}
+   - Cả U (Nhị phân)    : Mean = {hd95_u_sum['mean']:.2f} | Median = {hd95_u_sum['median']:.2f} | Missed = {hd95_u_sum['missed']} | False_Pos = {hd95_u_sum['false_pos']}
+
+2. Boundary F1 Score:
+   - F1 Score           : {mean_bf1 * 100:.2f}%
+   - Precision          : {mean_bf_p * 100:.2f}%
+   - Recall             : {mean_bf_r * 100:.2f}%
 ========================================================================================
 """
     with open(txt_path, mode='w', encoding='utf-8') as f_txt:
