@@ -13,14 +13,14 @@ class NaLaCore(tf.keras.layers.Layer):
         self.eps = eps
 
     def build(self, input_shape):
-        self.cpe_q = tf.keras.layers.DepthwiseConv2D(3, padding='same', use_bias=False)
-        self.cpe_kv = tf.keras.layers.DepthwiseConv2D(3, padding='same', use_bias=False)
-        self.W_q = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.W_k = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.W_v = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.gate_proj = tf.keras.layers.Dense(self.d_model, use_bias=True)
-        self.ln = tf.keras.layers.LayerNormalization(epsilon=1e-5)
-        self.W_o = tf.keras.layers.Dense(self.d_model, use_bias=False)
+        self.cpe_q = tf.keras.layers.DepthwiseConv2D(3, padding='same', use_bias=False, dtype=self.dtype_policy)
+        self.cpe_kv = tf.keras.layers.DepthwiseConv2D(3, padding='same', use_bias=False, dtype=self.dtype_policy)
+        self.W_q = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.W_k = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.W_v = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.gate_proj = tf.keras.layers.Dense(self.d_model, use_bias=True, dtype=self.dtype_policy)
+        self.ln = tf.keras.layers.LayerNormalization(epsilon=1e-5, dtype=self.dtype_policy)
+        self.W_o = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
         super().build(input_shape)
 
     def _safe_pow(self, x, p):
@@ -82,12 +82,12 @@ class LogLinearCore(tf.keras.layers.Layer):
         self.max_L = max_L
 
     def build(self, input_shape):
-        self.W_q = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.W_k = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.W_v = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.W_o = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.group_norm = tf.keras.layers.GroupNormalization(groups=self.num_heads)
-        self.lambda_proj = tf.keras.layers.Dense(self.num_heads * (self.max_L + 1))
+        self.W_q = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.W_k = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.W_v = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.W_o = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.group_norm = tf.keras.layers.GroupNormalization(groups=self.num_heads, dtype=self.dtype_policy)
+        self.lambda_proj = tf.keras.layers.Dense(self.num_heads * (self.max_L + 1), dtype=self.dtype_policy)
         super().build(input_shape)
 
     def call(self, q_src, kv_src, training=None):
@@ -180,12 +180,12 @@ class MultipoleCore(tf.keras.layers.Layer):
         self.L = L
 
     def build(self, input_shape):
-        self.D = tf.keras.layers.Conv2D(self.d_model, 2, strides=2, padding='valid')
-        self.U = tf.keras.layers.Conv2DTranspose(self.d_model, 2, strides=2, padding='valid')
-        self.W_q = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.W_k = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.W_v = tf.keras.layers.Dense(self.d_model, use_bias=False)
-        self.W_o = tf.keras.layers.Dense(self.d_model, use_bias=False)
+        self.D = tf.keras.layers.Conv2D(self.d_model, 2, strides=2, padding='valid', dtype=self.dtype_policy)
+        self.U = tf.keras.layers.Conv2DTranspose(self.d_model, 2, strides=2, padding='valid', dtype=self.dtype_policy)
+        self.W_q = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.W_k = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.W_v = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
+        self.W_o = tf.keras.layers.Dense(self.d_model, use_bias=False, dtype=self.dtype_policy)
         super().build(input_shape)
 
     def window_attention(self, q, kv):
