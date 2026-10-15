@@ -86,10 +86,22 @@ def get_data_generator(cfg: DictConfig,
     """
     Creates and return data generator object based on given type.
     """
+    # Check DALI compatibility with medical X-ray augmentation
+    aug_cfg_raw = getattr(cfg, "DATA_AUGMENTATION", None)
+    aug_enabled = False
+    if aug_cfg_raw is not None:
+        aug_enabled = bool(getattr(aug_cfg_raw, "ENABLE", True)) and str(getattr(aug_cfg_raw, "PRESET", "none")).lower() != "none"
+
     if cfg.DATA_GENERATOR_TYPE == "TF_GENERATOR":
         print(f"Using TensorFlow generator for {mode} data")
         generator = tf_data_generator(cfg, mode)
     elif cfg.DATA_GENERATOR_TYPE == "DALI_GENERATOR":
+        if aug_enabled:
+            raise ValueError(
+                "DALI pipeline does not support medical X-ray augmentation "
+                "(elastic deformation, CLAHE, tumor loss protection). "
+                "Please set DATA_GENERATOR_TYPE='TF_GENERATOR' or set DATA_AUGMENTATION.ENABLE=False."
+            )
         print(f"Using NVIDIA DALI generator for {mode} data")
         if cfg.USE_MULTI_GPUS.VALUE:
             generator = dali_data_generator(cfg, mode, strategy)

@@ -15,6 +15,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding='utf-8')
     except Exception:
         pass
+import json
 import hydra
 from omegaconf import DictConfig
 import tensorflow as tf
@@ -93,6 +94,25 @@ def train_dual_decoder(cfg: DictConfig):
 
     create_training_folders(cfg)
 
+    # Log and persist actual augmentation configuration
+    from data_generators.augmentations import build_augmentation_config
+    aug_cfg_raw = getattr(cfg, "DATA_AUGMENTATION", None)
+    actual_aug_config = build_augmentation_config(aug_cfg_raw)
+    print("\n" + "=" * 60)
+    print(f"[AUGMENTATION] ENABLE: {actual_aug_config.get('ENABLE')} | PRESET: '{actual_aug_config.get('PRESET')}'")
+    if actual_aug_config.get("ENABLE"):
+        print(f"  MAX_TUMOR_LOSS: {actual_aug_config.get('MAX_TUMOR_LOSS')}")
+        for k in ["HORIZONTAL_FLIP", "ROTATION", "ZOOM", "SHIFT", "ELASTIC", "CLAHE", "BRIGHTNESS", "CONTRAST", "GAMMA", "GAUSSIAN_NOISE", "GAUSSIAN_BLUR"]:
+            if k in actual_aug_config:
+                print(f"  {k}: {actual_aug_config[k]}")
+    print("=" * 60 + "\n")
+
+    ckpt_dir = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH)
+    aug_config_path = join_paths(ckpt_dir, "aug_config.json")
+    with open(aug_config_path, "w", encoding="utf-8") as f:
+        json.dump(actual_aug_config, f, indent=2)
+    print(f"[INFO] Augmentation config saved to: {aug_config_path}")
+
     if cfg.OPTIMIZATION.AMP:
         print("[INFO] Enabling Automatic Mixed Precision (AMP)")
         policy = mixed_precision.Policy('mixed_float16')
@@ -162,7 +182,8 @@ def train_dual_decoder(cfg: DictConfig):
         optimizer=optimizer,
         loss=losses_dict,
         loss_weights=loss_weights,
-        metrics=metrics_dict
+        metrics=metrics_dict,
+        jit_compile=bool(cfg.OPTIMIZATION.XLA),
     )
 
     print(f"\n[INFO] Model Summary:")
@@ -186,6 +207,9 @@ def train_dual_decoder(cfg: DictConfig):
     print(f"[INFO] Model checkpoint will be saved to: {checkpoint_path}")
 
     csv_log_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.CSV_LOGGER.PATH, f"training_logs_dual_decoder_{run_timestamp}.csv")
+    aug_config_ts_path = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.MODEL_CHECKPOINT.PATH, f"aug_config_{run_timestamp}.json")
+    with open(aug_config_ts_path, "w", encoding="utf-8") as f:
+        json.dump(actual_aug_config, f, indent=2)
 
     print("[INFO] Evaluating on 1 batch to get correct metric names...")
     test_batch = val_generator[0]

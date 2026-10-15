@@ -192,6 +192,23 @@ python train_dual_decoder.py \
 
 ---
 
+## 🔬 Medical Data Augmentation (`XrayAugmenter`)
+
+Tailored specifically for bone tumor radiographs, ensuring joint geometric consistency, intensity harmonization, and tumor margin protection:
+
+- **Presets**:
+  - `none`: Disables all augmentations.
+  - `light`: Horizontal flip (P=0.5), rotation ±5° (P=0.3), zoom 0.95–1.05 (P=0.3), brightness ±0.05 (P=0.5), contrast 0.95–1.05 (P=0.5).
+  - `medium` (**Default for M0-aug**):
+    - **Joint Geometric**: Horizontal flip (P=0.5), rotation ±10° (P=0.5), zoom 0.9–1.1 (P=0.5), translation 5% (P=0.3), coarse-grid elastic deformation $\alpha=15, \sigma=4$ (P=0.2).
+    - **Tumor Margin Protection (`MAX_TUMOR_LOSS = 0.10`)**: If geometric transforms crop out >10% of the expected tumor area, the geometric transformation is automatically reverted to safeguard lesion coverage.
+    - **Photometric & Intensity**: CLAHE on uint8 (P=0.3), brightness ±0.08, contrast 0.9–1.1, gamma 0.85–1.15, Gaussian noise $\sigma=0.01$ (identical across 3 channels), Gaussian blur $\sigma=0.5–1.0$. Clipped strictly to $[0.0, 1.0]$.
+- **Execution Order**: Augmentation operates on integer mask classes $\{0, 1, 2\}$ **before one-hot encoding** and **before dynamic boundary extraction** (`DualDecoderWrapper`), ensuring boundary ground truth accurately reflects the augmented anatomy.
+- **Malignant Oversampling**: `DATA.OVERSAMPLE_MALIGNANT` (default `1.0` = disabled). Setting $>1.0$ repeats malignant tumor samples during training.
+- **Reproducibility Note**: Augmenter uses seeded stateless RNG based on `SEED`. When `num_parallel_calls` or multi-worker data loading is enabled in `tf.data`, asynchronous batch completion may introduce slight non-determinism in batch ordering. For bitwise identical epoch order, set workers to 1.
+
+---
+
 ## 📊 Evaluation & Inference
 
 ### 1. Evaluate on Validation Set
