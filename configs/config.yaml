@@ -135,40 +135,7 @@ DATA_AUGMENTATION:
   ENABLE: True
   PRESET: "medium"  # none | light | medium
   MAX_TUMOR_LOSS: 0.10
-  HORIZONTAL_FLIP:
-    PROB: 0.5
-  ROTATION:
-    PROB: 0.5
-    ANGLE_RANGE: [-10, 10]
-  ZOOM:
-    PROB: 0.5
-    RANGE: [0.9, 1.1]
-  SHIFT:
-    PROB: 0.3
-    RANGE: [-0.05, 0.05]
-  ELASTIC:
-    PROB: 0.2
-    ALPHA: 15.0
-    SIGMA: 4.0
-  CLAHE:
-    PROB: 0.3
-    CLIP_LIMIT: 2.0
-    TILE_GRID_SIZE: 8
-  BRIGHTNESS:
-    PROB: 0.5
-    RANGE: [-0.08, 0.08]
-  CONTRAST:
-    PROB: 0.5
-    RANGE: [0.9, 1.1]
-  GAMMA:
-    PROB: 0.5
-    RANGE: [0.85, 1.15]
-  GAUSSIAN_NOISE:
-    PROB: 0.5
-    STDDEV: 0.01
-  GAUSSIAN_BLUR:
-    PROB: 0.5
-    SIGMA_RANGE: [0.5, 1.0]
+
 
 # ============ GPU & TỐI ƯU HÓA ============
 USE_MULTI_GPUS:

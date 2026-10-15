@@ -148,5 +148,7 @@ def benchmark_presets(batch_size=2, n_batches=100, size=384):
 
 
 if __name__ == "__main__":
+    bs = int(sys.argv[1]) if len(sys.argv) > 1 else 8
     benchmark_components()
-    benchmark_presets(batch_size=2, n_batches=100, size=384)
+    benchmark_presets(batch_size=bs, n_batches=100, size=384)
+
