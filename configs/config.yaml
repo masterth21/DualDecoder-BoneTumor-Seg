@@ -54,6 +54,7 @@ MODEL:
 
   # 2. Loại Attention tại Bottleneck (12x12) (tùy chọn: "nalaformer", "multipole", "log_linear", "none")
   BOTTLENECK_ATTENTION: "none"
+  FUSION_REFINEMENT: true       # false = bỏ Fusion + Refinement
 
 # ============ TẢI DỮ LIỆU ============
 DATA_GENERATOR_TYPE: "TF_GENERATOR"  # TF_GENERATOR ổn định, DALI cho tốc độ
@@ -147,6 +148,12 @@ OPTIMIZATION:
   XLA: False  # Tắt XLA để tránh lỗi libdevice.10.bc trên môi trường Conda/Linux
 
 # ============ HÀM MẤT ============
+LOSS:
+  WEIGHTS:            # trọng số loss từng đầu ra
+    REGION: 0.5
+    BOUNDARY: 1.0     # λ_b
+    REFINED: 1.0
+
 LOSS_CONFIG:
   TYPE: "weighted_dice_loss"  # Xử lý mất cân bằng lớp
   # WEIGHTS: [0.1, 0.4, 0.5]    # [Nền, U lành, U ác]

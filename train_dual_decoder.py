@@ -162,7 +162,11 @@ def train_dual_decoder(cfg: DictConfig):
         model = prepare_model(cfg, training=True)
 
     # Get multi-output loss dictionary and loss weights
-    losses_dict, loss_weights = get_dual_decoder_losses()
+    # losses_dict, loss_weights = get_dual_decoder_losses()
+    lw = cfg.LOSS.WEIGHTS
+    losses_dict, loss_weights = get_dual_decoder_losses({
+        'region_output': float(lw.REGION), 'boundary_output': float(lw.BOUNDARY), 'refined_output': float(lw.REFINED)})
+    print(f"[INFO] Loss weights: {loss_weights}")
     
     # Filter for active outputs
     active_outputs = model.output_names
