@@ -212,7 +212,11 @@ def build_dual_decoder_resnet(cfg: DictConfig):
         model = models.Model(inputs=input_layer, outputs=refined_output, name="M0_Region_Only_ResNet")
         return model
 
-    region_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="region_output")(f_region_full)
+    # region_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="region_output")(f_region_full)
+    use_fr = bool(cfg.MODEL.get("FUSION_REFINEMENT", True))   # False = bỏ Fusion + Refinement
+    if use_fr:
+        region_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="region_output")(f_region_full)
+
 
     # =========================================================================
     # 3. BOUNDARY DECODER BRANCH
@@ -250,6 +254,12 @@ def build_dual_decoder_resnet(cfg: DictConfig):
         f_boundary_full = conv_block(f_boundary_full, 32, name_prefix="f_boundary_full")
 
     boundary_output = layers.Conv2D(num_classes, (1, 1), activation='sigmoid', dtype='float32', name="boundary_output")(f_boundary_full)
+    
+    if not use_fr:
+        # Không Fusion/Refinement: đầu ra nhánh Region đặt tên 'refined_output' (như M0) để train/eval dùng chung
+        refined_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="refined_output")(f_region_full)
+        return models.Model(inputs=input_layer, outputs=[boundary_output, refined_output], name="DualDecoder_NoFR")
+
 
     # =========================================================================
     # 4. FUSION MODULE (Kết Hợp Đặc Trưng Region & Boundary)

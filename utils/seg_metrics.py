@@ -1,3 +1,5 @@
+
+
 """
 Chỉ số hình học cho phân đoạn: HD95 và Boundary F1 (BF score).
 Đơn vị khoảng cách: pixel ở độ phân giải đánh giá (384x384).
