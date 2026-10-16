@@ -1,0 +1,177 @@
+diff --git a/models/attention_gates.py b/models/attention_gates.py
+index fc233fd..3677bdf 100644
+--- a/models/attention_gates.py
++++ b/models/attention_gates.py
+@@ -49,21 +49,21 @@ class ContextAttentionGate(tf.keras.layers.Layer):
+         self.inter_c = self.inter_channels or max(C_skip // 2, 16)
+ 
+         # Gate Mechanism Projections
+-        self.conv_skip = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_skip")
+-        self.conv_gate = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=True, name="conv_gate")
++        self.conv_skip = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_skip", dtype="float32")
++        self.conv_gate = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=True, name="conv_gate", dtype="float32")
+         
+         if self.context_type != "none":
+-            self.conv_ctx = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_ctx")
++            self.conv_ctx = tf.keras.layers.Conv2D(self.inter_c, 1, use_bias=False, name="conv_ctx", dtype="float32")
+             
+             # Cross-attention params
+             self.head_dim = self.d_ctx // self.num_heads
+-            self.q_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="q_proj")
+-            self.k_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="k_proj")
+-            self.v_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="v_proj")
++            self.q_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="q_proj", dtype="float32")
++            self.k_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="k_proj", dtype="float32")
++            self.v_proj = tf.keras.layers.Dense(self.d_ctx, use_bias=False, name="v_proj", dtype="float32")
+             
+             if self.context_type == "nalaformer":
+-                self.phi_q_heads = [QueryFeatureMap(name=f"phi_q_h{i}") for i in range(self.num_heads)]
+-                self.phi_k_heads = [KeyFeatureMap(name=f"phi_k_h{i}") for i in range(self.num_heads)]
++                self.phi_q_heads = [QueryFeatureMap(name=f"phi_q_h{i}", dtype="float32") for i in range(self.num_heads)]
++                self.phi_k_heads = [KeyFeatureMap(name=f"phi_k_h{i}", dtype="float32") for i in range(self.num_heads)]
+             elif self.context_type in ["log_linear", "multipole"]:
+                 self.scale_weight = self.add_weight(
+                     name=f"{self.context_type}_scale",
+@@ -72,7 +72,7 @@ class ContextAttentionGate(tf.keras.layers.Layer):
+                     trainable=True
+                 )
+         
+-        self.gate_bn = tf.keras.layers.BatchNormalization(name="gate_bn")
++        self.gate_bn = tf.keras.layers.BatchNormalization(name="gate_bn", dtype="float32")
+         
+         alpha_channels = C_skip if self.per_channel else 1
+         # Initialize bias to 2.0 so alpha is ~0.88 initially
+@@ -83,7 +83,7 @@ class ContextAttentionGate(tf.keras.layers.Layer):
+             kernel_initializer=kernel_init,
+             bias_initializer=bias_init,
+             activation="sigmoid", 
+-            name=f"{self.name}_alpha"
++            name=f"{self.name}_alpha", dtype="float32"
+         )
+         super().build(input_shape)
+ 
+@@ -169,7 +169,7 @@ class ContextAttentionGate(tf.keras.layers.Layer):
+         
+         # Attention Gate Output
+         out = skip_f32 * alpha
+-        return tf.cast(out, orig_dtype)
++        return tf.cast(out, orig_dtype), alpha
+ 
+     def get_config(self):
+         config = super().get_config()
+diff --git a/models/dual_decoder_resnet.py b/models/dual_decoder_resnet.py
+index 041f3e4..6543483 100644
+--- a/models/dual_decoder_resnet.py
++++ b/models/dual_decoder_resnet.py
+@@ -22,6 +22,37 @@ from omegaconf import DictConfig
+ # =============================================================================
+ # Sử dụng ContextAttentionGate từ models.attention_gates thay thế các gate cũ.
+ 
++# =============================================================================
++# COMMON BLOCKS
++# =============================================================================
++def conv_block(x, filters, name_prefix="conv"):
++    """Standard Conv-BN-ReLU Block"""
++    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv1")(x)
++    x = layers.BatchNormalization(name=f"{name_prefix}_bn1")(x)
++    x = layers.Activation('relu', name=f"{name_prefix}_relu1")(x)
++
++    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv2")(x)
++    x = layers.BatchNormalization(name=f"{name_prefix}_bn2")(x)
++    x = layers.Activation('relu', name=f"{name_prefix}_relu2")(x)
++    return x
++
++
++def residual_refinement_block(x, filters, name_prefix="refine"):
++    """Residual Refinement Block for fine-tuning boundaries and regions"""
++    res = layers.Conv2D(filters, (1, 1), padding='same', name=f"{name_prefix}_res_proj")(x)
++
++    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv1")(x)
++    x = layers.BatchNormalization(name=f"{name_prefix}_bn1")(x)
++    x = layers.Activation('relu', name=f"{name_prefix}_relu1")(x)
++
++    x = layers.Conv2D(filters, (3, 3), padding='same', name=f"{name_prefix}_conv2")(x)
++    x = layers.BatchNormalization(name=f"{name_prefix}_bn2")(x)
++
++    x = layers.Add(name=f"{name_prefix}_add")([res, x])
++    x = layers.Activation('relu', name=f"{name_prefix}_out")(x)
++    return x
++
++
+ def apply_skip_attention(skip, gate, stage_idx, branch_cfg, prefix="reg"):
+     """
+     Áp dụng Attention Gate tại Skip Connection.
+@@ -36,15 +67,18 @@ def apply_skip_attention(skip, gate, stage_idx, branch_cfg, prefix="reg"):
+     attn_type = str(branch_cfg.get("TYPE", "none")).lower()
+     name = f"{prefix}_skipgate{stage_idx}"
+ 
+-    if attn_type == "oktay":
++    if attn_type in ["none", "", "null"]:
++        return skip
++    if attn_type in ["oktay", "gate"]:
+         context_type = "none"
+     elif attn_type in ["nalaformer", "log_linear", "multipole"]:
+         context_type = attn_type
+     else:
+-        context_type = "none"
++        raise ValueError(f"SKIP_ATTENTION TYPE không hợp lệ: '{attn_type}'")
+ 
+     from models.attention_gates import ContextAttentionGate
+-    return ContextAttentionGate(context_type=context_type, name=name)([skip, gate])
++    out, _alpha = ContextAttentionGate(context_type=context_type, name=name)([skip, gate])
++    return out
+ 
+ 
+ # =============================================================================
+@@ -242,10 +276,11 @@ def get_gate_maps_model(model):
+     """
+     Tạo model trích xuất tất cả các attention maps (hệ số alpha) từ ContextAttentionGate.
+     """
++    from models.attention_gates import ContextAttentionGate
+     gate_outputs = []
+     for layer in model.layers:
+-        if layer.name.endswith("_alpha"):
+-            gate_outputs.append(layer.output)
++        if isinstance(layer, ContextAttentionGate):
++            gate_outputs.append(layer.output[1])   # (B,H,W,1) alpha
+     
+     if not gate_outputs:
+         print("[WARNING] No ContextAttentionGate found in the model.")
+diff --git a/models/log_linear_attention.py b/models/log_linear_attention.py
+index e88c8e8..9555dae 100644
+--- a/models/log_linear_attention.py
++++ b/models/log_linear_attention.py
+@@ -309,7 +309,7 @@ class LogLinearBottleneck(tf.keras.layers.Layer):
+ 
+         # 2. Project in
+         h = self.proj_in(x_flat)
+-        h = h + pe
++        h = h + tf.cast(pe, h.dtype)                   # Add Positional Encoding (AMP-safe)
+ 
+         # 3. Log-Linear Encoder
+         h = self.encoder(h, training=training)
+diff --git a/models/multipole_attention.py b/models/multipole_attention.py
+index 30ecfab..18bf2ff 100644
+--- a/models/multipole_attention.py
++++ b/models/multipole_attention.py
+@@ -318,7 +318,7 @@ class MultipoleBottleneck(tf.keras.layers.Layer):
+ 
+         # 2. Project in
+         h = self.proj_in(x_flat)
+-        h = h + pe
++        h = h + tf.cast(pe, h.dtype)                   # Add Positional Encoding (AMP-safe)
+ 
+         # 3. Multipole Encoder
+         h = self.encoder(h, training=training)
+diff --git a/models/nalaformer_attention.py b/models/nalaformer_attention.py
+index 20e17c8..26f6662 100644
+--- a/models/nalaformer_attention.py
++++ b/models/nalaformer_attention.py
+@@ -637,7 +637,7 @@ class NaLaFormerBottleneck(tf.keras.layers.Layer):
+         x_flat = tf.reshape(x, [B, H * W, C])            # (B, N, C)
+ 
+         h = self.proj_in(x_flat)                       # (B, N, d_model)
+-        h = h + pe                                     # Add Positional Encoding
++        h = h + tf.cast(pe, h.dtype)                   # Add Positional Encoding (AMP-safe)
+         h = self.encoder(h, training=training)         # (B, N, d_model)
+         h = self.proj_out(h)                           # (B, N, C)
