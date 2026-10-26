@@ -34,7 +34,7 @@ from tensorflow.keras.callbacks import (
 )
 
 from data_generators import data_generator
-from data_generators.data_generator import DualDecoderWrapper
+from data_generators.data_generator import DualDecoderWrapper, dual_wrapper_kwargs
 from data_preparation.verify_data import verify_data
 from utils.general_utils import create_directory, join_paths, set_gpus, suppress_warnings
 from models.model import prepare_model
@@ -164,8 +164,19 @@ def train_dual_decoder(cfg: DictConfig):
     # Get multi-output loss dictionary and loss weights
     # losses_dict, loss_weights = get_dual_decoder_losses()
     lw = cfg.LOSS.WEIGHTS
-    losses_dict, loss_weights = get_dual_decoder_losses({
-        'region_output': float(lw.REGION), 'boundary_output': float(lw.BOUNDARY), 'refined_output': float(lw.REFINED)})
+    boundary_mode = str(cfg.BOUNDARY.get("MODE", "class")).lower()
+    sdf_node = cfg.MODEL.get("SDF", None)
+    use_sdf = bool(sdf_node.get("ENABLE", False)) if sdf_node is not None else False
+    weights_in = {'region_output': float(lw.REGION), 'boundary_output': float(lw.BOUNDARY), 'refined_output': float(lw.REFINED)}
+    if use_sdf:
+        weights_in['sdf_output'] = float(lw.get("SDF", 0.5))
+    losses_dict, loss_weights = get_dual_decoder_losses(
+        weights_in,
+        boundary_mode=boundary_mode,
+        pos_weight=float(cfg.BOUNDARY.get("POS_WEIGHT", 1.0)),
+        sdf_cfg=dict(cfg.get("SDF", {}) or {}) if use_sdf else None,
+    )
+    print(f"[INFO] Boundary mode: {boundary_mode} | SDF head: {use_sdf}")
     print(f"[INFO] Loss weights: {loss_weights}")
     
     # Filter for active outputs
@@ -200,8 +211,9 @@ def train_dual_decoder(cfg: DictConfig):
     base_train_gen = data_generator.get_data_generator(cfg, "TRAIN", strategy)
     base_val_gen = data_generator.get_data_generator(cfg, "VAL", strategy)
 
-    train_generator = DualDecoderWrapper(base_train_gen, output_names=model.output_names, kernel_size=kernel_size)
-    val_generator = DualDecoderWrapper(base_val_gen, output_names=model.output_names, kernel_size=kernel_size)
+    wrap_kw = dual_wrapper_kwargs(cfg)
+    train_generator = DualDecoderWrapper(base_train_gen, output_names=model.output_names, **wrap_kw)
+    val_generator = DualDecoderWrapper(base_val_gen, output_names=model.output_names, **wrap_kw)
 
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     tb_log_dir = join_paths(cfg.WORK_DIR, cfg.CALLBACKS.TENSORBOARD.PATH, f"dual_decoder_{run_timestamp}")

@@ -76,8 +76,8 @@ def evaluate(cfg: DictConfig):
     # 3. Data Generator
     val_generator = data_generator.get_data_generator(cfg, "VAL", strategy=None)
     if cfg.MODEL.TYPE == "dual_decoder_resnet":
-        from data_generators.data_generator import DualDecoderWrapper
-        val_generator = DualDecoderWrapper(val_generator, output_names=model.output_names)
+        from data_generators.data_generator import DualDecoderWrapper, dual_wrapper_kwargs
+        val_generator = DualDecoderWrapper(val_generator, output_names=model.output_names, **dual_wrapper_kwargs(cfg))
     elif cfg.MODEL.TYPE == "unet3plus_deepsup_cgm":
         from data_generators.data_generator import MultiOutputWrapper
         val_generator = MultiOutputWrapper(val_generator)

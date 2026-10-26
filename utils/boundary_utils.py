@@ -77,3 +77,52 @@ def extract_boundary_tf(mask_tensor: tf.Tensor, kernel_size: int = 3) -> tf.Tens
     
     boundary = tf.clip_by_value(dilated - eroded, 0.0, 1.0)
     return boundary
+
+
+def binary_tumor_tf(mask_onehot: tf.Tensor) -> tf.Tensor:
+    """
+    Gộp mask one-hot (B,H,W,C) thành u nhị phân (B,H,W,1): u = lành ∪ ác = max(kênh 1..C-1).
+    Nếu chỉ có 1 kênh (mask nhị phân) thì trả nguyên kênh đó.
+    """
+    mask = tf.cast(mask_onehot, tf.float32)
+    if mask.shape[-1] == 1:
+        return mask
+    return tf.reduce_max(mask[..., 1:], axis=-1, keepdims=True)
+
+
+def extract_boundary_binary_tf(mask_onehot: tf.Tensor, kernel_size: int = 3) -> tf.Tensor:
+    """Biên của u NHỊ PHÂN (lành ∪ ác): (B,H,W,C) one-hot -> (B,H,W,1)."""
+    return extract_boundary_tf(binary_tumor_tf(mask_onehot), kernel_size=kernel_size)
+
+
+def sdf_from_binary_np(tumor: np.ndarray, trunc: float = 20.0) -> np.ndarray:
+    """
+    Signed distance (đã cắt & chuẩn hoá) của 1 mask u nhị phân (H,W).
+      d = outside - inside, trong đó
+        inside  = distance_transform_edt(tumor)      (>0 bên trong u, khoảng cách tới pixel nền gần nhất)
+        outside = distance_transform_edt(1 - tumor)  (>0 bên ngoài u, khoảng cách tới pixel u gần nhất)
+      => d ÂM bên trong u, DƯƠNG bên ngoài, |d| ~ khoảng cách tới biên.
+      sdf = clip(d, -trunc, trunc) / trunc ∈ [-1, 1].
+    Ảnh không có u -> toàn +1. Ảnh toàn u -> toàn -1.
+    """
+    from scipy.ndimage import distance_transform_edt
+    t = np.asarray(tumor) > 0.5
+    if not t.any():
+        return np.ones(t.shape, dtype=np.float32)
+    if t.all():
+        return -np.ones(t.shape, dtype=np.float32)
+    inside = distance_transform_edt(t)
+    outside = distance_transform_edt(~t)
+    d = outside - inside
+    return (np.clip(d, -trunc, trunc) / float(trunc)).astype(np.float32)
+
+
+def sdf_from_onehot_np(mask_onehot, trunc: float = 20.0) -> np.ndarray:
+    """
+    Batch one-hot (B,H,W,C) -> SDF u nhị phân (B,H,W,1) float32.
+    Luôn dùng u = lành ∪ ác (bất kể BOUNDARY.MODE).
+    """
+    m = np.asarray(mask_onehot, dtype=np.float32)
+    tumor = m[..., 0] if m.shape[-1] == 1 else np.max(m[..., 1:], axis=-1)
+    out = np.stack([sdf_from_binary_np(tumor[b], trunc) for b in range(tumor.shape[0])], axis=0)
+    return out[..., None].astype(np.float32)

@@ -55,6 +55,9 @@ MODEL:
   # 2. Loại Attention tại Bottleneck (12x12) (tùy chọn: "nalaformer", "multipole", "log_linear", "none")
   BOTTLENECK_ATTENTION: "none"
   FUSION_REFINEMENT: true       # false = bỏ Fusion + Refinement
+  REFINEMENT: true              # false = giữ Fusion, bỏ Refinement (R2)
+  SDF:
+    ENABLE: false               # true = thêm head SDF (u nhị phân) trên nhánh Boundary (chỉ khi DUAL_DECODER=true)
 
 # ============ TẢI DỮ LIỆU ============
 DATA_GENERATOR_TYPE: "TF_GENERATOR"  # TF_GENERATOR ổn định, DALI cho tốc độ
@@ -74,6 +77,14 @@ OUTPUT:
 BOUNDARY:
   KERNEL_SIZE: 5     # số lẻ; độ dày dải biên = KERNEL_SIZE - 1 pixel ở 384x384 (5 -> 4 px)
   EVAL_TOL: 2        # dung sai (pixel) khi chấm Boundary F1
+  MODE: "class"      # "class" = 1 kênh biên/lớp (như cũ) | "binary" = 1 kênh, biên u nhị phân (lành ∪ ác)
+  POS_WEIGHT: 1.0    # pos_weight cho BCE biên (chỉ dùng ở mode binary)
+
+SDF:
+  TRUNC: 20          # cắt khoảng cách ±20 px (ở 384x384)
+  NEAR_PX: 5         # vùng gần biên được nhân trọng số
+  NEAR_WEIGHT: 5.0
+  HUBER_DELTA: 0.1   # SmoothL1
 
 
 # ============ SIÊU THÔNG SỐ - ĐƯỢC ĐIỀU CHỈNH TỐI ƯU ============
@@ -153,6 +164,7 @@ LOSS:
     REGION: 0.5
     BOUNDARY: 1.0     # λ_b
     REFINED: 1.0
+    SDF: 0.5          # chỉ dùng khi MODEL.SDF.ENABLE=true
 
 LOSS_CONFIG:
   TYPE: "weighted_dice_loss"  # Xử lý mất cân bằng lớp

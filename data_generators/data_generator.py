@@ -6,20 +6,29 @@ import tensorflow as tf
 from omegaconf import DictConfig
 
 from utils.general_utils import join_paths, get_gpus_count
-from utils.boundary_utils import extract_boundary_tf
+from utils.boundary_utils import extract_boundary_tf, extract_boundary_binary_tf, sdf_from_onehot_np
 from .tf_data_generator import DataGenerator as tf_data_generator
 
 class DualDecoderWrapper(tf.keras.utils.Sequence):
     """
-    Wrapper biến đổi nhãn đơn (1 output region mask) thành 3 outputs:
+    Wrapper biến đổi nhãn đơn (1 output region mask) thành các outputs:
     1. region_output: Ground truth region mask
-    2. boundary_output: Ground truth boundary mask (tính tự động)
+    2. boundary_output: Ground truth boundary mask (tính tự động, SAU augmentation)
+         - boundary_mode="class": (B,H,W,C) biên theo từng lớp (như cũ)
+         - boundary_mode="binary": (B,H,W,1) biên của u nhị phân (lành ∪ ác)
     3. refined_output: Ground truth region mask (tinh chỉnh)
+    4. sdf_output (chỉ khi model có output này): SDF u nhị phân (B,H,W,1) ∈ [-1,1],
+         âm trong u, dương ngoài u, cắt ở ±sdf_trunc px.
     """
-    def __init__(self, base_generator, output_names=None, kernel_size=3):
+    def __init__(self, base_generator, output_names=None, kernel_size=3,
+                 boundary_mode="class", sdf_trunc=20.0):
         self.base_generator = base_generator
         self.output_names = output_names
         self.kernel_size = kernel_size
+        self.boundary_mode = str(boundary_mode).lower()
+        if self.boundary_mode not in ("class", "binary"):
+            raise ValueError(f"boundary_mode không hợp lệ: '{boundary_mode}' (class | binary)")
+        self.sdf_trunc = float(sdf_trunc)
 
     def __len__(self):
         return len(self.base_generator)
@@ -28,12 +37,17 @@ class DualDecoderWrapper(tf.keras.utils.Sequence):
         item = self.base_generator[i]
         if isinstance(item, tuple) and len(item) == 2:
             x, y_region = item
-            y_boundary = extract_boundary_tf(y_region, kernel_size=self.kernel_size)
+            if self.boundary_mode == "binary":
+                y_boundary = extract_boundary_binary_tf(y_region, kernel_size=self.kernel_size)
+            else:
+                y_boundary = extract_boundary_tf(y_region, kernel_size=self.kernel_size)
             targets = {
                 'region_output': y_region,
                 'boundary_output': y_boundary,
                 'refined_output': y_region
             }
+            if self.output_names and 'sdf_output' in self.output_names:
+                targets['sdf_output'] = sdf_from_onehot_np(y_region, trunc=self.sdf_trunc)
             if self.output_names:
                 targets = {k: v for k, v in targets.items() if k in self.output_names}
                 if len(self.output_names) == 1:
@@ -44,6 +58,17 @@ class DualDecoderWrapper(tf.keras.utils.Sequence):
     def on_epoch_end(self):
         if hasattr(self.base_generator, 'on_epoch_end'):
             self.base_generator.on_epoch_end()
+
+
+def dual_wrapper_kwargs(cfg: DictConfig) -> dict:
+    """Tham số DualDecoderWrapper lấy từ cfg (kernel_size, boundary_mode, sdf_trunc)."""
+    bcfg = cfg.get("BOUNDARY", {}) or {}
+    scfg = cfg.get("SDF", {}) or {}
+    return dict(
+        kernel_size=int(bcfg.get("KERNEL_SIZE", 3)),
+        boundary_mode=str(bcfg.get("MODE", "class")).lower(),
+        sdf_trunc=float(scfg.get("TRUNC", 20.0)),
+    )
 
 
 class MultiOutputWrapper(tf.keras.utils.Sequence):

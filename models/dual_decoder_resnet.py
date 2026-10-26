@@ -82,8 +82,9 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     Returns:
         tf.keras.Model with 3 outputs:
           1. 'region_output': Intermediate Region Mask
-          2. 'boundary_output': Intermediate Boundary Mask
+          2. 'boundary_output': Intermediate Boundary Mask (C kênh nếu BOUNDARY.MODE=class, 1 kênh nếu binary)
           3. 'refined_output': Final Refined Region Mask
+        (+ 'sdf_output' (B,H,W,1, tanh) nếu MODEL.SDF.ENABLE=true)
     """
     img_size = cfg.INPUT.HEIGHT
     channels = cfg.INPUT.CHANNELS
@@ -253,12 +254,25 @@ def build_dual_decoder_resnet(cfg: DictConfig):
         f_boundary_full = layers.Conv2DTranspose(32, (3, 3), strides=(2, 2), padding='same', name="bound_full_up")(f_boundary)
         f_boundary_full = conv_block(f_boundary_full, 32, name_prefix="f_boundary_full")
 
-    boundary_output = layers.Conv2D(num_classes, (1, 1), activation='sigmoid', dtype='float32', name="boundary_output")(f_boundary_full)
-    
+    # BOUNDARY.MODE: "class" (mặc định, 1 kênh/lớp) | "binary" (1 kênh, biên u = lành ∪ ác)
+    boundary_mode = str(cfg.get("BOUNDARY", {}).get("MODE", "class")).lower()
+    if boundary_mode not in ("class", "binary"):
+        raise ValueError(f"BOUNDARY.MODE không hợp lệ: '{boundary_mode}' (class | binary)")
+    boundary_channels = 1 if boundary_mode == "binary" else num_classes
+    boundary_output = layers.Conv2D(boundary_channels, (1, 1), activation='sigmoid', dtype='float32', name="boundary_output")(f_boundary_full)
+
+    # SDF head (u nhị phân) trên đặc trưng nhánh Boundary (nhánh hình học)
+    sdf_cfg = cfg.MODEL.get("SDF", None)
+    use_sdf = bool(sdf_cfg.get("ENABLE", False)) if sdf_cfg is not None else False
+    extra_outputs = []
+    if use_sdf:
+        sdf_output = layers.Conv2D(1, (1, 1), activation='tanh', dtype='float32', name="sdf_output")(f_boundary_full)
+        extra_outputs.append(sdf_output)
+
     if not use_fr:
         # Không Fusion/Refinement: đầu ra nhánh Region đặt tên 'refined_output' (như M0) để train/eval dùng chung
         refined_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="refined_output")(f_region_full)
-        return models.Model(inputs=input_layer, outputs=[boundary_output, refined_output], name="DualDecoder_NoFR")
+        return models.Model(inputs=input_layer, outputs=[boundary_output, refined_output] + extra_outputs, name="DualDecoder_NoFR")
 
 
     # =========================================================================
@@ -272,6 +286,11 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     fused_features = layers.Conv2D(64, (3, 3), padding='same', name="fusion_conv1")(fused_features)
     fused_features = layers.BatchNormalization(name="fusion_bn1")(fused_features)
     fused_features = layers.Activation('relu', name="fusion_relu1")(fused_features)
+
+    if not bool(cfg.MODEL.get("REFINEMENT", True)):
+        # R2: giữ Fusion, bỏ Refinement
+        refined_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="refined_output")(fused_features)
+        return models.Model(inputs=input_layer, outputs=[region_output, boundary_output, refined_output] + extra_outputs, name="DualDecoder_R2_NoRefine")
 
     # =========================================================================
     # HOOK POINT: ATTENTION MODULE AT FUSION
@@ -294,7 +313,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     # =========================================================================
     model = models.Model(
         inputs=input_layer,
-        outputs=[region_output, boundary_output, refined_output],
+        outputs=[region_output, boundary_output, refined_output] + extra_outputs,
         name="DualDecoder_ResNet"
     )
 
