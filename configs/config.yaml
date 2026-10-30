@@ -58,6 +58,9 @@ MODEL:
   REFINEMENT: true              # false = giữ Fusion, bỏ Refinement (R2)
   SDF:
     ENABLE: false               # true = thêm head SDF (u nhị phân) trên nhánh Boundary (chỉ khi DUAL_DECODER=true)
+  CLS_HEAD:
+    ENABLE: false               # true = thêm head phân loại cấp ảnh (bình thường / lành / ác) trên bottleneck
+    DROPOUT: 0.3
 
 # ============ TẢI DỮ LIỆU ============
 DATA_GENERATOR_TYPE: "TF_GENERATOR"  # TF_GENERATOR ổn định, DALI cho tốc độ
@@ -165,6 +168,10 @@ LOSS:
     BOUNDARY: 1.0     # λ_b
     REFINED: 1.0
     SDF: 0.5          # chỉ dùng khi MODEL.SDF.ENABLE=true
+    CLS: 0.5          # chỉ dùng khi MODEL.CLS_HEAD.ENABLE=true
+
+CLS:
+  CLASS_WEIGHTS: [1.0, 1.0, 2.0]   # trọng số CE cấp ảnh [bình thường, lành, ác]
 
 LOSS_CONFIG:
   TYPE: "weighted_dice_loss"  # Xử lý mất cân bằng lớp

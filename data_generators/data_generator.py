@@ -2,12 +2,24 @@
 Data generator
 """
 import os
+import numpy as np
 import tensorflow as tf
 from omegaconf import DictConfig
 
 from utils.general_utils import join_paths, get_gpus_count
 from utils.boundary_utils import extract_boundary_tf, extract_boundary_binary_tf, sdf_from_onehot_np
 from .tf_data_generator import DataGenerator as tf_data_generator
+
+def image_level_onehot(mask_onehot):
+    """
+    Nhãn cấp ảnh (B,3) từ mask one-hot (B,H,W,3): 0 = không có u, ngược lại lớp u chiếm nhiều pixel nhất
+    (1 = lành, 2 = ác). Tính SAU augmentation nên khớp với mask đã augment.
+    """
+    m = np.asarray(mask_onehot, dtype=np.float32)
+    counts = m[..., 1:].sum(axis=(1, 2))                       # (B, 2)
+    lab = np.where(counts.sum(-1) > 0, 1 + counts.argmax(-1), 0)
+    return np.eye(3, dtype=np.float32)[lab]
+
 
 class DualDecoderWrapper(tf.keras.utils.Sequence):
     """
@@ -19,6 +31,7 @@ class DualDecoderWrapper(tf.keras.utils.Sequence):
     3. refined_output: Ground truth region mask (tinh chỉnh)
     4. sdf_output (chỉ khi model có output này): SDF u nhị phân (B,H,W,1) ∈ [-1,1],
          âm trong u, dương ngoài u, cắt ở ±sdf_trunc px.
+    5. cls_output (chỉ khi model có output này): nhãn cấp ảnh one-hot (B,3) bình thường / lành / ác.
     """
     def __init__(self, base_generator, output_names=None, kernel_size=3,
                  boundary_mode="class", sdf_trunc=20.0):
@@ -48,6 +61,8 @@ class DualDecoderWrapper(tf.keras.utils.Sequence):
             }
             if self.output_names and 'sdf_output' in self.output_names:
                 targets['sdf_output'] = sdf_from_onehot_np(y_region, trunc=self.sdf_trunc)
+            if self.output_names and 'cls_output' in self.output_names:
+                targets['cls_output'] = image_level_onehot(y_region)
             if self.output_names:
                 targets = {k: v for k, v in targets.items() if k in self.output_names}
                 if len(self.output_names) == 1:

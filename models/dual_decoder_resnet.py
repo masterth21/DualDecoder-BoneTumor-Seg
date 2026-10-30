@@ -85,6 +85,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
           2. 'boundary_output': Intermediate Boundary Mask (C kênh nếu BOUNDARY.MODE=class, 1 kênh nếu binary)
           3. 'refined_output': Final Refined Region Mask
         (+ 'sdf_output' (B,H,W,1, tanh) nếu MODEL.SDF.ENABLE=true)
+        (+ 'cls_output' (B,3, softmax: bình thường / lành / ác) nếu MODEL.CLS_HEAD.ENABLE=true)
     """
     img_size = cfg.INPUT.HEIGHT
     channels = cfg.INPUT.CHANNELS
@@ -206,11 +207,21 @@ def build_dual_decoder_resnet(cfg: DictConfig):
         f_region_full = conv_block(f_region_full, 32, name_prefix="f_region_full")
 
     activation_func = 'sigmoid' if num_classes == 1 else 'softmax'
-    
+
+    # Head phân loại cấp ảnh trên bottleneck (MODEL.CLS_HEAD.ENABLE, mặc định tắt):
+    # 0 = bình thường, 1 = u lành, 2 = u ác. Dùng để lọc báo nhầm và thống nhất loại u khi suy luận.
+    cls_cfg = cfg.MODEL.get("CLS_HEAD", None)
+    cls_outputs = []
+    if cls_cfg is not None and bool(cls_cfg.get("ENABLE", False)):
+        g = layers.GlobalAveragePooling2D(name="cls_gap")(bottleneck)
+        g = layers.Dropout(float(cls_cfg.get("DROPOUT", 0.3)), name="cls_dropout")(g)
+        cls_outputs.append(layers.Dense(3, activation="softmax", dtype="float32", name="cls_output")(g))
+
     if not is_dual_decoder:
         # M0 Mode: only Region branch, name output 'refined_output' for compatibility
         refined_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="refined_output")(f_region_full)
-        model = models.Model(inputs=input_layer, outputs=refined_output, name="M0_Region_Only_ResNet")
+        m0_outputs = [refined_output] + cls_outputs if cls_outputs else refined_output
+        model = models.Model(inputs=input_layer, outputs=m0_outputs, name="M0_Region_Only_ResNet")
         return model
 
     # region_output = layers.Conv2D(num_classes, (1, 1), activation=activation_func, dtype='float32', name="region_output")(f_region_full)
@@ -268,6 +279,7 @@ def build_dual_decoder_resnet(cfg: DictConfig):
     if use_sdf:
         sdf_output = layers.Conv2D(1, (1, 1), activation='tanh', dtype='float32', name="sdf_output")(f_boundary_full)
         extra_outputs.append(sdf_output)
+    extra_outputs += cls_outputs
 
     if not use_fr:
         # Không Fusion/Refinement: đầu ra nhánh Region đặt tên 'refined_output' (như M0) để train/eval dùng chung

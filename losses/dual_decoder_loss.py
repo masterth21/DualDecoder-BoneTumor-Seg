@@ -129,7 +129,24 @@ def make_sdf_loss(trunc=20.0, near_px=5.0, near_weight=5.0, huber_delta=0.1):
     return sdf_loss
 
 
-def get_dual_decoder_losses(weights=None, boundary_mode="class", pos_weight=1.0, sdf_cfg=None):
+def make_cls_loss(class_weights=(1.0, 1.0, 1.0)):
+    """
+    Cross-entropy cấp ảnh có trọng số lớp cho 'cls_output' (B,3): 0 bình thường, 1 u lành, 2 u ác.
+    Trung bình có trọng số: sum(w_y * CE) / sum(w_y).
+    """
+    w = tf.constant([float(v) for v in class_weights], dtype=tf.float32)
+
+    def cls_loss(y_true, y_pred):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.clip_by_value(tf.cast(y_pred, tf.float32), 1e-7, 1.0)
+        ce = -tf.reduce_sum(y_true * tf.math.log(y_pred), axis=-1)
+        sw = tf.reduce_sum(y_true * w, axis=-1)
+        return tf.reduce_sum(sw * ce) / (tf.reduce_sum(sw) + 1e-7)
+
+    return cls_loss
+
+
+def get_dual_decoder_losses(weights=None, boundary_mode="class", pos_weight=1.0, sdf_cfg=None, cls_cfg=None):
     """
     Returns loss dictionary and loss weights for Keras model compilation.
     
@@ -142,6 +159,7 @@ def get_dual_decoder_losses(weights=None, boundary_mode="class", pos_weight=1.0,
       - 'sdf_output' (tuỳ chọn): SmoothL1 có trọng số gần biên. Trọng số lấy từ weights['sdf_output'].
             sdf_cfg: dict TRUNC / NEAR_PX / NEAR_WEIGHT / HUBER_DELTA.
     Loss 'sdf_output' chỉ có khi truyền sdf_cfg (không None); train script lọc theo model.output_names.
+      - 'cls_output' (tuỳ chọn): CE cấp ảnh có trọng số lớp, khi truyền cls_cfg (dict CLASS_WEIGHTS).
     """
     if weights is None:
         weights = {
@@ -171,5 +189,7 @@ def get_dual_decoder_losses(weights=None, boundary_mode="class", pos_weight=1.0,
             near_weight=sdf_cfg.get("NEAR_WEIGHT", 5.0),
             huber_delta=sdf_cfg.get("HUBER_DELTA", 0.1),
         )
+    if cls_cfg is not None:
+        losses['cls_output'] = make_cls_loss(list(dict(cls_cfg).get("CLASS_WEIGHTS", [1.0, 1.0, 1.0])))
 
     return losses, weights

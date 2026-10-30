@@ -170,13 +170,18 @@ def train_dual_decoder(cfg: DictConfig):
     weights_in = {'region_output': float(lw.REGION), 'boundary_output': float(lw.BOUNDARY), 'refined_output': float(lw.REFINED)}
     if use_sdf:
         weights_in['sdf_output'] = float(lw.get("SDF", 0.5))
+    cls_node = cfg.MODEL.get("CLS_HEAD", None)
+    use_cls = bool(cls_node.get("ENABLE", False)) if cls_node is not None else False
+    if use_cls:
+        weights_in['cls_output'] = float(lw.get("CLS", 0.5))
     losses_dict, loss_weights = get_dual_decoder_losses(
         weights_in,
         boundary_mode=boundary_mode,
         pos_weight=float(cfg.BOUNDARY.get("POS_WEIGHT", 1.0)),
         sdf_cfg=dict(cfg.get("SDF", {}) or {}) if use_sdf else None,
+        cls_cfg={"CLASS_WEIGHTS": list(cfg.get("CLS", {}).get("CLASS_WEIGHTS", [1.0, 1.0, 1.0]))} if use_cls else None,
     )
-    print(f"[INFO] Boundary mode: {boundary_mode} | SDF head: {use_sdf}")
+    print(f"[INFO] Boundary mode: {boundary_mode} | SDF head: {use_sdf} | CLS head: {use_cls}")
     print(f"[INFO] Loss weights: {loss_weights}")
     
     # Filter for active outputs
@@ -192,6 +197,8 @@ def train_dual_decoder(cfg: DictConfig):
         ]
     if 'region_output' in active_outputs:
         metrics_dict['region_output'] = [dice_coef_region]
+    if 'cls_output' in active_outputs:
+        metrics_dict['cls_output'] = [tf.keras.metrics.CategoricalAccuracy(name="acc")]
 
     model.compile(
         optimizer=optimizer,
