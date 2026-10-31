@@ -270,7 +270,11 @@ def train_dual_decoder(cfg: DictConfig):
         print_table=False
     )
 
-    training_steps = data_generator.get_iterations(cfg, mode="TRAIN")
+    # Số bước mỗi epoch = độ dài generator TRAIN (khi DATA.OVERSAMPLE_MALIGNANT > 1 generator dài hơn số ảnh gốc;
+    # dùng số ảnh gốc làm Keras chạy xen kẽ epoch dài / epoch ngắn). Không oversample thì bằng đúng giá trị cũ.
+    training_steps = len(base_train_gen)
+    if training_steps != data_generator.get_iterations(cfg, mode="TRAIN"):
+        print(f"[INFO] Oversample: {training_steps} bước/epoch (số ảnh gốc cho {data_generator.get_iterations(cfg, mode='TRAIN')} bước)")
     validation_steps = data_generator.get_iterations(cfg, mode="VAL")
 
     compact_progress = CompactProgressCallback(
